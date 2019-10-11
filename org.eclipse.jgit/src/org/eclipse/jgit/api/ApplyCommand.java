@@ -219,8 +219,8 @@ public class ApplyCommand extends GitCommand<ApplyResult> {
 				String hunkLine = hunkLines.get(j);
 				switch (hunkLine.charAt(0)) {
 				case ' ':
-					if (!newLines.get(hh.getNewStartLine() - 1 + pos).equals(
-							hunkLine.substring(1))) {
+					// added a trim to avoid a PatchApplyException on windows if the patch file has only newlines as linebreaks
+					if (!newLines.get(hh.getNewStartLine() - 1 + pos).trim().equals(hunkLine.substring(1).trim())) {
 						throw new PatchApplyException(MessageFormat.format(
 								JGitText.get().patchApplyException, hh));
 					}
@@ -230,8 +230,8 @@ public class ApplyCommand extends GitCommand<ApplyResult> {
 					if (hh.getNewStartLine() == 0) {
 						newLines.clear();
 					} else {
-						if (!newLines.get(hh.getNewStartLine() - 1 + pos)
-								.equals(hunkLine.substring(1))) {
+						// added a trim to avoid a PatchApplyException on windows if the patch file has only newlines as linebreaks
+						if (!newLines.get(hh.getNewStartLine() - 1 + pos).trim().equals(hunkLine.substring(1).trim())) {
 							throw new PatchApplyException(MessageFormat.format(
 									JGitText.get().patchApplyException, hh));
 						}
@@ -253,13 +253,22 @@ public class ApplyCommand extends GitCommand<ApplyResult> {
 		if (!isChanged(oldLines, newLines))
 			return; // don't touch the file
 		StringBuilder sb = new StringBuilder();
+		boolean isOSWindows = System.getProperty("os.name").toLowerCase().contains("win");
 		for (String l : newLines) {
 			// don't bother handling line endings - if it was windows, the \r is
 			// still there!
 			sb.append(l).append('\n');
+			// if the os is windows add a \r before the \n if it is not there already
+			if(isOSWindows && (l.isEmpty() || !(l.charAt(l.length() - 1) == '\r'))) {
+				sb.insert(sb.length() - 1, "\r");
+			}
 		}
 		if (sb.length() > 0) {
 			sb.deleteCharAt(sb.length() - 1);
+			// if the last \n is removed by the above statement, also remove the \r on windows
+			if(isOSWindows && sb.charAt(sb.length() - 1) == '\r') {
+				sb.deleteCharAt(sb.length() - 1);
+			}
 		}
 		try (Writer fw = new OutputStreamWriter(new FileOutputStream(f),
 				UTF_8)) {
