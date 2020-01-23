@@ -43,14 +43,14 @@
 
 package org.eclipse.jgit.util.io;
 
-import java.io.InputStream;
-import java.io.OutputStream;
-
 import org.eclipse.jgit.attributes.Attributes;
 import org.eclipse.jgit.lib.CoreConfig.EolStreamType;
 import org.eclipse.jgit.treewalk.TreeWalk.OperationType;
 import org.eclipse.jgit.treewalk.WorkingTreeOptions;
 import org.eclipse.jgit.util.SystemReader;
+
+import java.io.InputStream;
+import java.io.OutputStream;
 
 /**
  * Utility used to create input and output stream wrappers for
@@ -254,7 +254,11 @@ public final class EolStreamTypeUtil {
 			case TEXT_CRLF:
 				return EolStreamType.AUTO_CRLF;
 			case TEXT_LF:
-				return EolStreamType.AUTO_LF;
+				if(System.getProperty("jgit.streams.enable.auto_lf") == null) {
+					return EolStreamType.DIRECT;
+				} else {
+					return EolStreamType.AUTO_LF;
+				}
 			default:
 				return basic;
 			}
