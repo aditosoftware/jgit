@@ -20,11 +20,69 @@ check_bazel_version()
 
 load("//tools:bazlets.bzl", "load_bazlets")
 
-load_bazlets(commit = "09a035e98077dce549d5f6a7472d06c4b8f792d2")
+load_bazlets(commit = "f30a992da9fc855dce819875afb59f9dd6f860cd")
 
 load(
     "@com_googlesource_gerrit_bazlets//tools:maven_jar.bzl",
     "maven_jar",
+)
+
+http_archive(
+    name = "openjdk15_linux_archive",
+    build_file_content = """
+java_runtime(name = 'runtime', srcs =  glob(['**']), visibility = ['//visibility:public'])
+exports_files(["WORKSPACE"], visibility = ["//visibility:public"])
+""",
+    sha256 = "0a38f1138c15a4f243b75eb82f8ef40855afcc402e3c2a6de97ce8235011b1ad",
+    strip_prefix = "zulu15.27.17-ca-jdk15.0.0-linux_x64",
+    urls = [
+        "https://mirror.bazel.build/cdn.azul.com/zulu/bin/zulu15.27.17-ca-jdk15.0.0-linux_x64.tar.gz",
+        "https://cdn.azul.com/zulu/bin/zulu15.27.17-ca-jdk15.0.0-linux_x64.tar.gz",
+    ],
+)
+
+http_archive(
+    name = "openjdk15_darwin_archive",
+    build_file_content = """
+java_runtime(name = 'runtime', srcs =  glob(['**']), visibility = ['//visibility:public'])
+exports_files(["WORKSPACE"], visibility = ["//visibility:public"])
+""",
+    sha256 = "f80b2e0512d9d8a92be24497334c974bfecc8c898fc215ce0e76594f00437482",
+    strip_prefix = "zulu15.27.17-ca-jdk15.0.0-macosx_x64",
+    urls = [
+        "https://mirror.bazel.build/cdn.azul.com/zulu/bin/zulu15.27.17-ca-jdk15.0.0-macosx_x64.tar.gz",
+        "https://cdn.azul.com/zulu/bin/zulu15.27.17-ca-jdk15.0.0-macosx_x64.tar.gz",
+    ],
+)
+
+JMH_VERS = "1.21"
+
+maven_jar(
+    name = "jmh-core",
+    artifact = "org.openjdk.jmh:jmh-core:" + JMH_VERS,
+    attach_source = False,
+    sha1 = "442447101f63074c61063858033fbfde8a076873",
+)
+
+maven_jar(
+    name = "jmh-annotations",
+    artifact = "org.openjdk.jmh:jmh-generator-annprocess:" + JMH_VERS,
+    attach_source = False,
+    sha1 = "7aac374614a8a76cad16b91f1a4419d31a7dcda3",
+)
+
+maven_jar(
+    name = "jopt",
+    artifact = "net.sf.jopt-simple:jopt-simple:5.0.4",
+    attach_source = False,
+    sha1 = "4fdac2fbe92dfad86aa6e9301736f6b4342a3f5c",
+)
+
+maven_jar(
+    name = "math3",
+    artifact = "org.apache.commons:commons-math3:3.6.1",
+    attach_source = False,
+    sha1 = "e4ba98f1d4b3c80ec46392f25e094a6a2e58fcbf",
 )
 
 maven_jar(
@@ -47,38 +105,38 @@ maven_jar(
 
 maven_jar(
     name = "javaewah",
-    artifact = "com.googlecode.javaewah:JavaEWAH:1.1.6",
-    sha1 = "94ad16d728b374d65bd897625f3fbb3da223a2b6",
+    artifact = "com.googlecode.javaewah:JavaEWAH:1.1.7",
+    sha1 = "570dde3cd706ae10c62fe19b150928cfdb415e87",
 )
 
 maven_jar(
     name = "httpclient",
-    artifact = "org.apache.httpcomponents:httpclient:4.5.6",
-    sha1 = "1afe5621985efe90a92d0fbc9be86271efbe796f",
+    artifact = "org.apache.httpcomponents:httpclient:4.5.13",
+    sha1 = "e5f6cae5ca7ecaac1ec2827a9e2d65ae2869cada",
 )
 
 maven_jar(
     name = "httpcore",
-    artifact = "org.apache.httpcomponents:httpcore:4.4.10",
-    sha1 = "acc54d9b28bdffe4bbde89ed2e4a1e86b5285e2b",
+    artifact = "org.apache.httpcomponents:httpcore:4.4.14",
+    sha1 = "9dd1a631c082d92ecd4bd8fd4cf55026c720a8c1",
 )
 
 maven_jar(
     name = "sshd-osgi",
-    artifact = "org.apache.sshd:sshd-osgi:2.2.0",
-    sha1 = "a45d48cb53678e699816e8e054e55fa33f5a4558",
+    artifact = "org.apache.sshd:sshd-osgi:2.6.0",
+    sha1 = "40e365bb799e1bff3d31dc858b1e59a93c123f29",
 )
 
 maven_jar(
     name = "sshd-sftp",
-    artifact = "org.apache.sshd:sshd-sftp:2.2.0",
-    sha1 = "3d011e00adf38e49bb8711a9dd762fe908a2170c",
+    artifact = "org.apache.sshd:sshd-sftp:2.6.0",
+    sha1 = "6eddfe8fdf59a3d9a49151e4177f8c1bebeb30c9",
 )
 
 maven_jar(
     name = "commons-codec",
-    artifact = "commons-codec:commons-codec:1.10",
-    sha1 = "4b95f4897fa13f2cd904aee711aeafc0c5295cd8",
+    artifact = "commons-codec:commons-codec:1.14",
+    sha1 = "3cb1181b2141a7e752f5bdc998b7ef1849f726cf",
 )
 
 maven_jar(
@@ -89,14 +147,14 @@ maven_jar(
 
 maven_jar(
     name = "log-api",
-    artifact = "org.slf4j:slf4j-api:1.7.2",
-    sha1 = "0081d61b7f33ebeab314e07de0cc596f8e858d97",
+    artifact = "org.slf4j:slf4j-api:1.7.30",
+    sha1 = "b5a4b6d16ab13e34a88fae84c35cd5d68cac922c",
 )
 
 maven_jar(
     name = "slf4j-simple",
-    artifact = "org.slf4j:slf4j-simple:1.7.2",
-    sha1 = "760055906d7353ba4f7ce1b8908bc6b2e91f39fa",
+    artifact = "org.slf4j:slf4j-simple:1.7.30",
+    sha1 = "e606eac955f55ecf1d8edcccba04eb8ac98088dd",
 )
 
 maven_jar(
@@ -107,8 +165,8 @@ maven_jar(
 
 maven_jar(
     name = "commons-compress",
-    artifact = "org.apache.commons:commons-compress:1.18",
-    sha1 = "1191f9f2bc0c47a8cce69193feb1ff0a8bcb37d5",
+    artifact = "org.apache.commons:commons-compress:1.19",
+    sha1 = "7e65777fb451ddab6a9c054beb879e521b7eab78",
 )
 
 maven_jar(
@@ -125,8 +183,8 @@ maven_jar(
 
 maven_jar(
     name = "junit",
-    artifact = "junit:junit:4.12",
-    sha1 = "2973d150c0dc1fefe998f834810d68f278ea58ec",
+    artifact = "junit:junit:4.13",
+    sha1 = "e49ccba652b735c93bd6e6f59760d8254cf597dd",
 )
 
 maven_jar(
@@ -145,6 +203,12 @@ maven_jar(
     name = "mockito",
     artifact = "org.mockito:mockito-core:2.23.0",
     sha1 = "497ddb32fd5d01f9dbe99a2ec790aeb931dff1b1",
+)
+
+maven_jar(
+    name = "assertj-core",
+    artifact = "org.assertj:assertj-core:3.14.0",
+    sha1 = "3b7b0fcac821f3d167764e9926573cd64f78f9e9",
 )
 
 BYTE_BUDDY_VERSION = "1.9.0"
@@ -169,73 +233,80 @@ maven_jar(
 
 maven_jar(
     name = "gson",
-    artifact = "com.google.code.gson:gson:2.8.2",
-    sha1 = "3edcfe49d2c6053a70a2a47e4e1c2f94998a49cf",
+    artifact = "com.google.code.gson:gson:2.8.6",
+    sha1 = "9180733b7df8542621dc12e21e87557e8c99b8cb",
 )
 
-JETTY_VER = "9.4.21.v20190926"
+JETTY_VER = "9.4.36.v20210114"
 
 maven_jar(
     name = "jetty-servlet",
     artifact = "org.eclipse.jetty:jetty-servlet:" + JETTY_VER,
-    sha1 = "b8b319531d4aa26049cdfc2a8d3431219b9d19aa",
-    src_sha1 = "1fa9afededcb9370dd750994581c71a891099d84",
+    sha1 = "b189e52a5ee55ae172e4e99e29c5c314f5daf4b9",
+    src_sha1 = "3a0fa449772ab0d76625f6afb81f60c32a490613",
 )
 
 maven_jar(
     name = "jetty-security",
     artifact = "org.eclipse.jetty:jetty-security:" + JETTY_VER,
-    sha1 = "6226803d9f2198acebeba984a910f7a62c1df2da",
-    src_sha1 = "37aabc7ce483171e62afb0ec3202cdfde99ed2dc",
+    sha1 = "42030d6ed7dfc0f75818cde0adcf738efc477574",
+    src_sha1 = "612220a97d45fad3983ccc56b0cb9a271f3fd003",
 )
 
 maven_jar(
     name = "jetty-server",
     artifact = "org.eclipse.jetty:jetty-server:" + JETTY_VER,
-    sha1 = "7ada02c441d06602587eeacce7a9693160a20f3e",
-    src_sha1 = "d02a3241203f14e8c08a5e6a09bb51bd34c9a57d",
+    sha1 = "88a7d342974aadca658e7386e8d0fcc5c0788f41",
+    src_sha1 = "4552c0c6db2948e8557db477b6b48d291006e481",
 )
 
 maven_jar(
     name = "jetty-http",
     artifact = "org.eclipse.jetty:jetty-http:" + JETTY_VER,
-    sha1 = "cc59f5acae2ed66c209de484ac4d3d2086eaa4d7",
-    src_sha1 = "7cd581962f6e5b224b932a39d0214e3dcce6992e",
+    sha1 = "1eee89a55e04ff94df0f85d95200fc48acb43d86",
+    src_sha1 = "552a784ec789c7ba581c5341ae6d8b6353ed5ace",
 )
 
 maven_jar(
     name = "jetty-io",
     artifact = "org.eclipse.jetty:jetty-io:" + JETTY_VER,
-    sha1 = "9a65da60b050fc65212cb8e2dd3fba1f300b2141",
-    src_sha1 = "02700a970340b42932d91b6bc3bac6963159c160",
+    sha1 = "84a8faf9031eb45a5a2ddb7681e22c483d81ab3a",
+    src_sha1 = "72d5fc6d909e28f8720394b25babda80805a46b9",
 )
 
 maven_jar(
     name = "jetty-util",
     artifact = "org.eclipse.jetty:jetty-util:" + JETTY_VER,
-    sha1 = "72a5fc3be9f0994270599a6e0b829f8a3f554066",
-    src_sha1 = "7a3827c0fa323def8fcc84af97124e42e3f387e1",
+    sha1 = "925257fbcca6b501a25252c7447dbedb021f7404",
+    src_sha1 = "532e8b66044f4e58ca5da3aec19f02a2f3c16ddd",
 )
 
-BOUNCYCASTLE_VER = "1.61"
+maven_jar(
+    name = "jetty-util-ajax",
+    artifact = "org.eclipse.jetty:jetty-util-ajax:" + JETTY_VER,
+    sha1 = "2f478130c21787073facb64d7242e06f94980c60",
+    src_sha1 = "7153d7ca38878d971fd90992c303bb7719ba7a21",
+)
+
+BOUNCYCASTLE_VER = "1.65"
 
 maven_jar(
     name = "bcpg",
     artifact = "org.bouncycastle:bcpg-jdk15on:" + BOUNCYCASTLE_VER,
-    sha1 = "422656435514ab8a28752b117d5d2646660a0ace",
-    src_sha1 = "836da34e11114cbce8fa99f54175f8f3278d1cce",
+    sha1 = "f32fc02cc29c9fdcc35c0de4d16964f01777067c",
+    src_sha1 = "508476d5383c7d086b400f5e7c5a8cf4dc8ac4e2",
 )
 
 maven_jar(
     name = "bcprov",
-    artifact = "org.bouncycastle:bcprov-jdk15on:" + BOUNCYCASTLE_VER,
-    sha1 = "00df4b474e71be02c1349c3292d98886f888d1f7",
-    src_sha1 = "3bf88046a16098ea6cc41576dd50d512854d39e1",
+    artifact = "org.bouncycastle:bcprov-jdk15on:1.65.01",
+    sha1 = "0fbd478ea7b07acc3902b9585a37fd88393f8427",
+    src_sha1 = "8f54635075628c69b6c037e800dd0b03ffb8dd51",
 )
 
 maven_jar(
     name = "bcpkix",
     artifact = "org.bouncycastle:bcpkix-jdk15on:" + BOUNCYCASTLE_VER,
-    sha1 = "89bb3aa5b98b48e584eee2a7401b7682a46779b4",
-    src_sha1 = "a0498d09200a18737eccc05aa81bbd05c1be0f8c",
+    sha1 = "c9507d93e4b453320b57d9ac21bdd67d65a00bbc",
+    src_sha1 = "16c71e83af43927d20ccad19defcbb0babcbdb26",
 )

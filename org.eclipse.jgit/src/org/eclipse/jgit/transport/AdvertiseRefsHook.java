@@ -51,8 +51,8 @@ public interface AdvertiseRefsHook {
 	/**
 	 * A simple hook that advertises the default refs.
 	 * <p>
-	 * The method implementations do nothing to preserve the default behavior; see
-	 * {@link UploadPack#setAdvertisedRefs(java.util.Map)} and
+	 * The method implementations do nothing to preserve the default behavior;
+	 * see {@link UploadPack#setAdvertisedRefs(java.util.Map)} and
 	 * {@link ReceivePack#setAdvertisedRefs(java.util.Map,java.util.Set)}.
 	 */
 	AdvertiseRefsHook DEFAULT = new AdvertiseRefsHook() {
@@ -62,7 +62,7 @@ public interface AdvertiseRefsHook {
 		}
 
 		@Override
-		public void advertiseRefs(BaseReceivePack receivePack) {
+		public void advertiseRefs(ReceivePack receivePack) {
 			// Do nothing.
 		}
 	};
@@ -89,7 +89,8 @@ public interface AdvertiseRefsHook {
 	 *            if necessary.
 	 * @throws org.eclipse.jgit.transport.ServiceMayNotContinueException
 	 *             abort; the message will be sent to the user.
+	 * @since 5.6
 	 */
-	void advertiseRefs(BaseReceivePack receivePack)
+	void advertiseRefs(ReceivePack receivePack)
 			throws ServiceMayNotContinueException;
 }

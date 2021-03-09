@@ -1,46 +1,13 @@
 /*
- * Copyright (C) 2008-2013, Google Inc.
+ * Copyright (C) 2008, 2013 Google Inc.
  * Copyright (C) 2008, Robin Rosenberg <robin.rosenberg@dewire.com>
- * Copyright (C) 2008, Shawn O. Pearce <spearce@spearce.org>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2008, 2020 Shawn O. Pearce <spearce@spearce.org> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.transport;
@@ -280,7 +247,75 @@ public final class GitProtocolConstants {
 	 */
 	public static final String COMMAND_FETCH = "fetch"; //$NON-NLS-1$
 
-	static enum MultiAck {
+	/**
+	 * HTTP header to set by clients to request a specific git protocol version
+	 * in the HTTP transport.
+	 *
+	 * @since 5.11
+	 */
+	public static final String PROTOCOL_HEADER = "Git-Protocol"; //$NON-NLS-1$
+
+	/**
+	 * Environment variable to set by clients to request a specific git protocol
+	 * in the file:// and ssh:// transports.
+	 *
+	 * @since 5.11
+	 */
+	public static final String PROTOCOL_ENVIRONMENT_VARIABLE = "GIT_PROTOCOL"; //$NON-NLS-1$
+
+	/**
+	 * Protocol V2 ref advertisement attribute containing the peeled object id
+	 * for annotated tags.
+	 *
+	 * @since 5.11
+	 */
+	public static final String REF_ATTR_PEELED = "peeled:"; //$NON-NLS-1$
+
+	/**
+	 * Protocol V2 ref advertisement attribute containing the name of the ref
+	 * for symbolic refs.
+	 *
+	 * @since 5.11
+	 */
+	public static final String REF_ATTR_SYMREF_TARGET = "symref-target:"; //$NON-NLS-1$
+
+	/**
+	 * Protocol V2 acknowledgments section header.
+	 *
+	 * @since 5.11
+	 */
+	public static final String SECTION_ACKNOWLEDGMENTS = "acknowledgments"; //$NON-NLS-1$
+
+	/**
+	 * Protocol V2 packfile section header.
+	 *
+	 * @since 5.11
+	 */
+	public static final String SECTION_PACKFILE = "packfile"; //$NON-NLS-1$
+
+	/**
+	 * Protocol announcement for protocol version 1. This is the same as V0,
+	 * except for this initial line.
+	 *
+	 * @since 5.11
+	 */
+	public static final String VERSION_1 = "version 1"; //$NON-NLS-1$
+
+	/**
+	 * Protocol announcement for protocol version 2.
+	 *
+	 * @since 5.11
+	 */
+	public static final String VERSION_2 = "version 2"; //$NON-NLS-1$
+
+	/**
+	 * Protocol request for protocol version 2.
+	 *
+	 * @since 5.11
+	 */
+	public static final String VERSION_2_REQUEST = "version=2"; //$NON-NLS-1$
+
+	enum MultiAck {
 		OFF, CONTINUE, DETAILED;
 	}
 

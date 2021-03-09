@@ -1,64 +1,35 @@
 /*
- * Copyright (C) 2017, Thomas Wolf <thomas.wolf@paranor.ch>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2017, 2020 Thomas Wolf <thomas.wolf@paranor.ch> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.lib;
 
+import java.io.File;
+import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import org.eclipse.jgit.annotations.NonNull;
 import org.eclipse.jgit.transport.RefSpec;
+import org.eclipse.jgit.util.FS;
 
 /**
- * Something that knows how to convert plain strings from a git
- * {@link org.eclipse.jgit.lib.Config} to typed values.
+ * Something that knows how to convert plain strings from a git {@link Config}
+ * to typed values.
  *
  * @since 4.9
  */
 public interface TypedConfigGetter {
 
 	/**
-	 * Get a boolean value from a git {@link org.eclipse.jgit.lib.Config}.
+	 * Get a boolean value from a git {@link Config}.
 	 *
 	 * @param config
 	 *            to get the value from
@@ -77,7 +48,7 @@ public interface TypedConfigGetter {
 			String name, boolean defaultValue);
 
 	/**
-	 * Parse an enumeration from a git {@link org.eclipse.jgit.lib.Config}.
+	 * Parse an enumeration from a git {@link Config}.
 	 *
 	 * @param config
 	 *            to get the value from
@@ -98,7 +69,7 @@ public interface TypedConfigGetter {
 			String subsection, String name, T defaultValue);
 
 	/**
-	 * Obtain an integer value from a git {@link org.eclipse.jgit.lib.Config}.
+	 * Obtain an integer value from a git {@link Config}.
 	 *
 	 * @param config
 	 *            to get the value from
@@ -116,7 +87,7 @@ public interface TypedConfigGetter {
 			int defaultValue);
 
 	/**
-	 * Obtain a long value from a git {@link org.eclipse.jgit.lib.Config}.
+	 * Obtain a long value from a git {@link Config}.
 	 *
 	 * @param config
 	 *            to get the value from
@@ -135,7 +106,7 @@ public interface TypedConfigGetter {
 
 	/**
 	 * Parse a numerical time unit, such as "1 minute", from a git
-	 * {@link org.eclipse.jgit.lib.Config}.
+	 * {@link Config}.
 	 *
 	 * @param config
 	 *            to get the value from
@@ -157,10 +128,50 @@ public interface TypedConfigGetter {
 	long getTimeUnit(Config config, String section, String subsection,
 			String name, long defaultValue, TimeUnit wantUnit);
 
+	/**
+	 * Parse a string value from a git {@link Config} and treat it as a file
+	 * path, replacing a ~/ prefix by the user's home directory.
+	 * <p>
+	 * <b>Note:</b> this may throw {@link InvalidPathException} if the string is
+	 * not a valid path.
+	 * </p>
+	 *
+	 * @param config
+	 *            to get the path from.
+	 * @param section
+	 *            section the key is in.
+	 * @param subsection
+	 *            subsection the key is in, or null if not in a subsection.
+	 * @param name
+	 *            the key name.
+	 * @param fs
+	 *            to use to convert the string into a path.
+	 * @param resolveAgainst
+	 *            directory to resolve the path against if it is a relative
+	 *            path.
+	 * @param defaultValue
+	 *            to return if no value was present
+	 * @return the {@link Path}, or {@code defaultValue} if not set
+	 * @since 5.10
+	 */
+	default Path getPath(Config config, String section, String subsection,
+			String name, @NonNull FS fs, File resolveAgainst,
+			Path defaultValue) {
+		String value = config.getString(section, subsection, name);
+		if (value == null) {
+			return defaultValue;
+		}
+		File file;
+		if (value.startsWith("~/")) { //$NON-NLS-1$
+			file = fs.resolve(fs.userHome(), value.substring(2));
+		} else {
+			file = fs.resolve(resolveAgainst, value);
+		}
+		return file.toPath();
+	}
 
 	/**
-	 * Parse a list of {@link org.eclipse.jgit.transport.RefSpec}s from a git
-	 * {@link org.eclipse.jgit.lib.Config}.
+	 * Parse a list of {@link RefSpec}s from a git {@link Config}.
 	 *
 	 * @param config
 	 *            to get the list from

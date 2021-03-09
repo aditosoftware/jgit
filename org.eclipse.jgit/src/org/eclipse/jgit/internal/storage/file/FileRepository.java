@@ -2,57 +2,31 @@
  * Copyright (C) 2007, Dave Watson <dwatson@mimvista.com>
  * Copyright (C) 2008-2010, Google Inc.
  * Copyright (C) 2006-2010, Robin Rosenberg <robin.rosenberg@dewire.com>
- * Copyright (C) 2006-2008, Shawn O. Pearce <spearce@spearce.org>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2006-2008, Shawn O. Pearce <spearce@spearce.org> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.internal.storage.file;
 
+import static java.util.stream.Collectors.toList;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.text.MessageFormat;
 import java.text.ParseException;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
@@ -66,23 +40,27 @@ import org.eclipse.jgit.events.IndexChangedEvent;
 import org.eclipse.jgit.internal.JGitText;
 import org.eclipse.jgit.internal.storage.file.ObjectDirectory.AlternateHandle;
 import org.eclipse.jgit.internal.storage.file.ObjectDirectory.AlternateRepository;
-import org.eclipse.jgit.internal.storage.reftree.RefTreeDatabase;
 import org.eclipse.jgit.lib.BaseRepositoryBuilder;
+import org.eclipse.jgit.lib.BatchRefUpdate;
 import org.eclipse.jgit.lib.ConfigConstants;
 import org.eclipse.jgit.lib.Constants;
 import org.eclipse.jgit.lib.CoreConfig.HideDotFiles;
 import org.eclipse.jgit.lib.CoreConfig.SymLinks;
+import org.eclipse.jgit.lib.NullProgressMonitor;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.ProgressMonitor;
 import org.eclipse.jgit.lib.Ref;
 import org.eclipse.jgit.lib.RefDatabase;
 import org.eclipse.jgit.lib.RefUpdate;
+import org.eclipse.jgit.lib.ReflogEntry;
 import org.eclipse.jgit.lib.ReflogReader;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.lib.StoredConfig;
+import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.storage.file.FileBasedConfig;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
 import org.eclipse.jgit.storage.pack.PackConfig;
+import org.eclipse.jgit.transport.ReceiveCommand;
 import org.eclipse.jgit.util.FileUtils;
 import org.eclipse.jgit.util.IO;
 import org.eclipse.jgit.util.RawParseUtils;
@@ -121,7 +99,7 @@ public class FileRepository extends Repository {
 	private static final String UNNAMED = "Unnamed repository; edit this file to name it for gitweb."; //$NON-NLS-1$
 
 	private final FileBasedConfig repoConfig;
-	private final RefDatabase refs;
+	private RefDatabase refs;
 	private final ObjectDirectory objectDatabase;
 
 	private final Object snapshotLock = new Object();
@@ -197,10 +175,12 @@ public class FileRepository extends Repository {
 				ConfigConstants.CONFIG_KEY_REPO_FORMAT_VERSION, 0);
 
 		String reftype = repoConfig.getString(
-				"extensions", null, "refStorage"); //$NON-NLS-1$ //$NON-NLS-2$
+				ConfigConstants.CONFIG_EXTENSIONS_SECTION, null,
+				ConfigConstants.CONFIG_KEY_REF_STORAGE);
 		if (repositoryFormatVersion >= 1 && reftype != null) {
-			if (StringUtils.equalsIgnoreCase(reftype, "reftree")) { //$NON-NLS-1$
-				refs = new RefTreeDatabase(this, new RefDirectory(this));
+			if (StringUtils.equalsIgnoreCase(reftype,
+					ConfigConstants.CONFIG_REF_STORAGE_REFTABLE)) {
+				refs = new FileReftableDatabase(this);
 			} else {
 				throw new IOException(JGitText.get().unknownRepositoryFormat);
 			}
@@ -263,7 +243,7 @@ public class FileRepository extends Repository {
 
 		RefUpdate head = updateRef(Constants.HEAD);
 		head.disableRefLog();
-		head.link(Constants.R_HEADS + Constants.MASTER);
+		head.link(Constants.R_HEADS + getInitialBranch());
 
 		final boolean fileMode;
 		if (getFS().supportsExecute()) {
@@ -358,9 +338,8 @@ public class FileRepository extends Repository {
 		File directory = getDirectory();
 		if (directory != null) {
 			return directory.getPath();
-		} else {
-			throw new IllegalStateException();
 		}
+		throw new IllegalStateException();
 	}
 
 	/** {@inheritDoc} */
@@ -531,10 +510,19 @@ public class FileRepository extends Repository {
 	/** {@inheritDoc} */
 	@Override
 	public ReflogReader getReflogReader(String refName) throws IOException {
+		if (refs instanceof FileReftableDatabase) {
+			// Cannot use findRef: reftable stores log data for deleted or renamed
+			// branches.
+			return ((FileReftableDatabase)refs).getReflogReader(refName);
+		}
+
+		// TODO: use exactRef here, which offers more predictable and therefore preferable
+		// behavior.
 		Ref ref = findRef(refName);
-		if (ref != null)
-			return new ReflogReaderImpl(this, ref.getName());
-		return null;
+		if (ref == null) {
+			return null;
+		}
+		return new ReflogReaderImpl(this, ref.getName());
 	}
 
 	/** {@inheritDoc} */
@@ -612,6 +600,222 @@ public class FileRepository extends Repository {
 			gc.gc();
 		} catch (ParseException | IOException e) {
 			throw new JGitInternalException(JGitText.get().gcFailed, e);
+		}
+	}
+
+	/**
+	 * Converts the RefDatabase from reftable to RefDirectory. This operation is
+	 * not atomic.
+	 *
+	 * @param writeLogs
+	 *            whether to write reflogs
+	 * @param backup
+	 *            whether to rename or delete the old storage files. If set to
+	 *            {@code true}, the reftable list is left in {@code refs.old},
+	 *            and the {@code reftable/} dir is left alone. If set to
+	 *            {@code false}, the {@code reftable/} dir is removed, and
+	 *            {@code refs} file is removed.
+	 * @throws IOException
+	 *             on IO problem
+	 */
+	void convertToPackedRefs(boolean writeLogs, boolean backup) throws IOException {
+		List<Ref> all = refs.getRefs();
+		File packedRefs = new File(getDirectory(), Constants.PACKED_REFS);
+		if (packedRefs.exists()) {
+			throw new IOException(MessageFormat.format(JGitText.get().fileAlreadyExists,
+				packedRefs.getName()));
+		}
+
+		File refsFile = new File(getDirectory(), "refs"); //$NON-NLS-1$
+		File refsHeadsFile = new File(refsFile, "heads");//$NON-NLS-1$
+		File headFile = new File(getDirectory(), Constants.HEAD);
+		FileReftableDatabase oldDb = (FileReftableDatabase) refs;
+
+		// Remove the dummy files that ensure compatibility with older git
+		// versions (see convertToReftable). First make room for refs/heads/
+		refsHeadsFile.delete();
+		// RefDirectory wants to create the refs/ directory from scratch, so
+		// remove that too.
+			refsFile.delete();
+		// remove HEAD so its previous invalid value doesn't cause issues.
+		headFile.delete();
+
+		// This is not atomic, but there is no way to instantiate a RefDirectory
+		// that is disconnected from the current repo.
+		RefDirectory refDir = new RefDirectory(this);
+		refs = refDir;
+		refs.create();
+
+		ReflogWriter logWriter = refDir.newLogWriter(true);
+		List<Ref> symrefs = new ArrayList<>();
+		BatchRefUpdate bru = refs.newBatchUpdate();
+		for (Ref r : all) {
+			if (r.isSymbolic()) {
+				symrefs.add(r);
+			} else {
+				bru.addCommand(new ReceiveCommand(ObjectId.zeroId(),
+						r.getObjectId(), r.getName()));
+			}
+
+			if (writeLogs) {
+				List<ReflogEntry> logs = oldDb.getReflogReader(r.getName())
+					.getReverseEntries();
+				Collections.reverse(logs);
+				for (ReflogEntry e : logs) {
+					logWriter.log(r.getName(), e);
+				}
+		}
+		}
+
+		try (RevWalk rw = new RevWalk(this)) {
+			bru.execute(rw, NullProgressMonitor.INSTANCE);
+		}
+
+		List<String> failed = new ArrayList<>();
+		for (ReceiveCommand cmd : bru.getCommands()) {
+			if (cmd.getResult() != ReceiveCommand.Result.OK) {
+				failed.add(cmd.getRefName() + ": " + cmd.getResult()); //$NON-NLS-1$
+			}
+		}
+
+		if (!failed.isEmpty()) {
+			throw new IOException(String.format("%s: %s", //$NON-NLS-1$
+					JGitText.get().failedToConvert,
+					StringUtils.join(failed, ", "))); //$NON-NLS-1$
+		}
+
+		for (Ref s : symrefs) {
+			RefUpdate up = refs.newUpdate(s.getName(), false);
+			up.setForceUpdate(true);
+			RefUpdate.Result res = up.link(s.getTarget().getName());
+			if (res != RefUpdate.Result.NEW
+					&& res != RefUpdate.Result.NO_CHANGE) {
+				throw new IOException(
+						String.format("ref %s: %s", s.getName(), res)); //$NON-NLS-1$
+			}
+		}
+
+		if (!backup) {
+			File reftableDir = new File(getDirectory(), Constants.REFTABLE);
+			FileUtils.delete(reftableDir,
+					FileUtils.RECURSIVE | FileUtils.IGNORE_ERRORS);
+		}
+		repoConfig.unset(ConfigConstants.CONFIG_EXTENSIONS_SECTION, null,
+				ConfigConstants.CONFIG_KEY_REF_STORAGE);
+		repoConfig.save();
+	}
+
+	/**
+	 * Converts the RefDatabase from RefDirectory to reftable. This operation is
+	 * not atomic.
+	 *
+	 * @param writeLogs
+	 *            whether to write reflogs
+	 * @param backup
+	 *            whether to rename or delete the old storage files. If set to
+	 *            {@code true}, the loose refs are left in {@code refs.old}, the
+	 *            packed-refs in {@code packed-refs.old} and reflogs in
+	 *            {@code refs.old/}. HEAD is left in {@code HEAD.old} and also
+	 *            {@code .log} is appended to additional refs. If set to
+	 *            {@code false}, the {@code refs/} and {@code logs/} directories
+	 *            and {@code HEAD} and additional symbolic refs are removed.
+	 * @throws IOException
+	 *             on IO problem
+	 */
+	@SuppressWarnings("nls")
+	void convertToReftable(boolean writeLogs, boolean backup)
+			throws IOException {
+		File reftableDir = new File(getDirectory(), Constants.REFTABLE);
+		File headFile = new File(getDirectory(), Constants.HEAD);
+		if (reftableDir.exists() && FileUtils.hasFiles(reftableDir.toPath())) {
+			throw new IOException(JGitText.get().reftableDirExists);
+		}
+
+		// Ignore return value, as it is tied to temporary newRefs file.
+		FileReftableDatabase.convertFrom(this, writeLogs);
+
+		File refsFile = new File(getDirectory(), "refs");
+
+		// non-atomic: remove old data.
+		File packedRefs = new File(getDirectory(), Constants.PACKED_REFS);
+		File logsDir = new File(getDirectory(), Constants.LOGS);
+
+		List<String> additional = getRefDatabase().getAdditionalRefs().stream()
+				.map(Ref::getName).collect(toList());
+		additional.add(Constants.HEAD);
+		if (backup) {
+			FileUtils.rename(refsFile, new File(getDirectory(), "refs.old"));
+			if (packedRefs.exists()) {
+				FileUtils.rename(packedRefs, new File(getDirectory(),
+						Constants.PACKED_REFS + ".old"));
+			}
+			if (logsDir.exists()) {
+				FileUtils.rename(logsDir,
+						new File(getDirectory(), Constants.LOGS + ".old"));
+			}
+			for (String r : additional) {
+				FileUtils.rename(new File(getDirectory(), r),
+					new File(getDirectory(), r + ".old"));
+			}
+		} else {
+			FileUtils.delete(packedRefs, FileUtils.SKIP_MISSING);
+			FileUtils.delete(headFile, FileUtils.SKIP_MISSING);
+			FileUtils.delete(logsDir,
+					FileUtils.RECURSIVE | FileUtils.SKIP_MISSING);
+			FileUtils.delete(refsFile,
+					FileUtils.RECURSIVE | FileUtils.SKIP_MISSING);
+			for (String r : additional) {
+				new File(getDirectory(), r).delete();
+			}
+		}
+
+		FileUtils.mkdir(refsFile, true);
+
+		// By putting in a dummy HEAD, old versions of Git still detect a repo
+		// (that they can't read)
+		try (OutputStream os = new FileOutputStream(headFile)) {
+			os.write(Constants.encodeASCII("ref: refs/heads/.invalid"));
+		}
+
+		// Some tools might write directly into .git/refs/heads/BRANCH. By
+		// putting a file here, this fails spectacularly.
+		FileUtils.createNewFile(new File(refsFile, "heads"));
+
+		repoConfig.setString(ConfigConstants.CONFIG_EXTENSIONS_SECTION, null,
+				ConfigConstants.CONFIG_KEY_REF_STORAGE,
+				ConfigConstants.CONFIG_REF_STORAGE_REFTABLE);
+		repoConfig.setLong(ConfigConstants.CONFIG_CORE_SECTION, null,
+				ConfigConstants.CONFIG_KEY_REPO_FORMAT_VERSION, 1);
+		repoConfig.save();
+		refs.close();
+		refs = new FileReftableDatabase(this);
+	}
+
+	/**
+	 * Converts between ref storage formats.
+	 *
+	 * @param format
+	 *            the format to convert to, either "reftable" or "refdir"
+	 * @param writeLogs
+	 *            whether to write reflogs
+	 * @param backup
+	 *            whether to make a backup of the old data
+	 * @throws IOException
+	 *             on I/O problems.
+	 */
+	public void convertRefStorage(String format, boolean writeLogs,
+			boolean backup) throws IOException {
+		if (format.equals("reftable")) { //$NON-NLS-1$
+			if (refs instanceof RefDirectory) {
+				convertToReftable(writeLogs, backup);
+			}
+		} else if (format.equals("refdir")) {//$NON-NLS-1$
+			if (refs instanceof FileReftableDatabase) {
+				convertToPackedRefs(writeLogs, backup);
+			}
+		} else {
+			throw new IOException(MessageFormat
+					.format(JGitText.get().unknownRefStorageFormat, format));
 		}
 	}
 }

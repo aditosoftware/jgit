@@ -1,44 +1,11 @@
 /*
- * Copyright (C) 2016, Google Inc.
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2016, Google Inc. and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.transport;
@@ -52,6 +19,7 @@ import org.eclipse.jgit.lib.Constants;
  */
 public class ReceivedPackStatistics {
 	private long numBytesRead;
+	private long numBytesDuplicated;
 
 	private long numWholeCommit;
 	private long numWholeTree;
@@ -59,6 +27,7 @@ public class ReceivedPackStatistics {
 	private long numWholeTag;
 	private long numOfsDelta;
 	private long numRefDelta;
+	private long numObjectsDuplicated;
 
 	private long numDeltaCommit;
 	private long numDeltaTree;
@@ -72,6 +41,17 @@ public class ReceivedPackStatistics {
 	 */
 	public long getNumBytesRead() {
 		return numBytesRead;
+	}
+
+	/**
+	 * Get number of bytes of objects already in the local database
+	 *
+	 * @return number of bytes of objects appeared in both the pack sent by the
+	 *         client and the local database
+	 * @since 5.10
+	 */
+	public long getNumBytesDuplicated() {
+		return numBytesDuplicated;
 	}
 
 	/**
@@ -129,6 +109,17 @@ public class ReceivedPackStatistics {
 	}
 
 	/**
+	 * Get number of objects already in the local database
+	 *
+	 * @return number of objects appeared in both the pack sent by the client
+	 *         and the local database
+	 * @since 5.10
+	 */
+	public long getNumObjectsDuplicated() {
+		return numObjectsDuplicated;
+	}
+
+	/**
 	 * Get number of delta commit objects in the pack
 	 *
 	 * @return number of delta commit objects in the pack
@@ -167,6 +158,7 @@ public class ReceivedPackStatistics {
 	/** A builder for {@link ReceivedPackStatistics}. */
 	public static class Builder {
 		private long numBytesRead;
+		private long numBytesDuplicated;
 
 		private long numWholeCommit;
 		private long numWholeTree;
@@ -174,6 +166,7 @@ public class ReceivedPackStatistics {
 		private long numWholeTag;
 		private long numOfsDelta;
 		private long numRefDelta;
+		private long numObjectsDuplicated;
 
 		private long numDeltaCommit;
 		private long numDeltaTree;
@@ -186,6 +179,17 @@ public class ReceivedPackStatistics {
 		 */
 		public Builder setNumBytesRead(long numBytesRead) {
 			this.numBytesRead = numBytesRead;
+			return this;
+		}
+
+		/**
+		 * @param size
+		 *            additional bytes already in the local database
+		 * @return this
+		 * @since 5.10
+		 */
+		Builder incrementNumBytesDuplicated(long size) {
+			numBytesDuplicated += size;
 			return this;
 		}
 
@@ -229,6 +233,17 @@ public class ReceivedPackStatistics {
 		}
 
 		/**
+		 * Increment the duplicated object count.
+		 *
+		 * @return this
+		 * @since 5.10
+		 */
+		Builder incrementObjectsDuplicated() {
+			numObjectsDuplicated++;
+			return this;
+		}
+
+		/**
 		 * Increment a delta object count.
 		 *
 		 * @param type OBJ_COMMIT, OBJ_TREE, OBJ_BLOB, or OBJ_TAG
@@ -259,6 +274,7 @@ public class ReceivedPackStatistics {
 		ReceivedPackStatistics build() {
 			ReceivedPackStatistics s = new ReceivedPackStatistics();
 			s.numBytesRead = numBytesRead;
+			s.numBytesDuplicated = numBytesDuplicated;
 			s.numWholeCommit = numWholeCommit;
 			s.numWholeTree = numWholeTree;
 			s.numWholeBlob = numWholeBlob;
@@ -269,6 +285,7 @@ public class ReceivedPackStatistics {
 			s.numDeltaTree = numDeltaTree;
 			s.numDeltaBlob = numDeltaBlob;
 			s.numDeltaTag = numDeltaTag;
+			s.numObjectsDuplicated = numObjectsDuplicated;
 			return s;
 		}
 	}

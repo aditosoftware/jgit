@@ -1,44 +1,11 @@
 /*
- * Copyright (C) 2011, 2017 Chris Aniszczyk <caniszczyk@gmail.com>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2011, 2017 Chris Aniszczyk <caniszczyk@gmail.com> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 package org.eclipse.jgit.api;
 
@@ -77,8 +44,8 @@ import org.eclipse.jgit.transport.RefSpec;
 import org.eclipse.jgit.transport.RemoteConfig;
 import org.eclipse.jgit.transport.TagOpt;
 import org.eclipse.jgit.transport.URIish;
-import org.eclipse.jgit.util.FileUtils;
 import org.eclipse.jgit.util.FS;
+import org.eclipse.jgit.util.FileUtils;
 
 /**
  * Clone a repository into a new working directory
@@ -106,6 +73,8 @@ public class CloneCommand extends TransportCommand<CloneCommand, Git> {
 
 	private boolean cloneAllBranches;
 
+	private boolean mirror;
+
 	private boolean cloneSubmodules;
 
 	private boolean noCheckout;
@@ -117,6 +86,14 @@ public class CloneCommand extends TransportCommand<CloneCommand, Git> {
 	private boolean directoryExistsInitially;
 
 	private boolean gitDirExistsInitially;
+
+	private FETCH_TYPE fetchType;
+
+	private TagOpt tagOption;
+
+	private enum FETCH_TYPE {
+		MULTIPLE_BRANCHES, ALL_BRANCHES, MIRROR
+	}
 
 	/**
 	 * Callback for status of clone operation.
@@ -189,8 +166,9 @@ public class CloneCommand extends TransportCommand<CloneCommand, Git> {
 			verifyDirectories(u);
 		} catch (URISyntaxException e) {
 			throw new InvalidRemoteException(
-					MessageFormat.format(JGitText.get().invalidURL, uri));
+					MessageFormat.format(JGitText.get().invalidURL, uri), e);
 		}
+		setFetchType();
 		@SuppressWarnings("resource") // Closed by caller
 		Repository repository = init();
 		FetchResult fetchResult = null;
@@ -209,8 +187,9 @@ public class CloneCommand extends TransportCommand<CloneCommand, Git> {
 				repository.close();
 			}
 			cleanup();
-			throw new InvalidRemoteException(MessageFormat.format(
-					JGitText.get().invalidRemote, remote));
+			throw new InvalidRemoteException(
+					MessageFormat.format(JGitText.get().invalidRemote, remote),
+					e);
 		} catch (GitAPIException | RuntimeException e) {
 			if (repository != null) {
 				repository.close();
@@ -232,6 +211,20 @@ public class CloneCommand extends TransportCommand<CloneCommand, Git> {
 			}
 		}
 		return new Git(repository, true);
+	}
+
+	private void setFetchType() {
+		if (mirror) {
+			fetchType = FETCH_TYPE.MIRROR;
+			setBare(true);
+		} else if (cloneAllBranches) {
+			fetchType = FETCH_TYPE.ALL_BRANCHES;
+		} else if (branchesToClone != null && !branchesToClone.isEmpty()) {
+			fetchType = FETCH_TYPE.MULTIPLE_BRANCHES;
+		} else {
+			// Default: neither mirror nor all nor specific refs given
+			fetchType = FETCH_TYPE.ALL_BRANCHES;
+		}
 	}
 
 	private static boolean isNonEmptyDirectory(File dir) {
@@ -282,12 +275,14 @@ public class CloneCommand extends TransportCommand<CloneCommand, Git> {
 		RemoteConfig config = new RemoteConfig(clonedRepo.getConfig(), remote);
 		config.addURI(u);
 
-		final String dst = (bare ? Constants.R_HEADS : Constants.R_REMOTES
-				+ config.getName() + '/') + '*';
-		boolean fetchAll = cloneAllBranches || branchesToClone == null
-				|| branchesToClone.isEmpty();
+		boolean fetchAll = fetchType == FETCH_TYPE.ALL_BRANCHES
+				|| fetchType == FETCH_TYPE.MIRROR;
 
-		config.setFetchRefSpecs(calculateRefSpecs(fetchAll, dst));
+		config.setFetchRefSpecs(calculateRefSpecs(fetchType, config.getName()));
+		config.setMirror(fetchType == FETCH_TYPE.MIRROR);
+		if (tagOption != null) {
+			config.setTagOpt(tagOption);
+		}
 		config.update(clonedRepo.getConfig());
 
 		clonedRepo.getConfig().save();
@@ -296,32 +291,45 @@ public class CloneCommand extends TransportCommand<CloneCommand, Git> {
 		FetchCommand command = new FetchCommand(clonedRepo);
 		command.setRemote(remote);
 		command.setProgressMonitor(monitor);
-		command.setTagOpt(fetchAll ? TagOpt.FETCH_TAGS : TagOpt.AUTO_FOLLOW);
+		if (tagOption != null) {
+			command.setTagOpt(tagOption);
+		} else {
+			command.setTagOpt(
+					fetchAll ? TagOpt.FETCH_TAGS : TagOpt.AUTO_FOLLOW);
+		}
+		command.setInitialBranch(branch);
 		configure(command);
 
 		return command.call();
 	}
 
-	private List<RefSpec> calculateRefSpecs(boolean fetchAll, String dst) {
-		RefSpec heads = new RefSpec();
-		heads = heads.setForceUpdate(true);
-		heads = heads.setSourceDestination(Constants.R_HEADS + '*', dst);
+	private List<RefSpec> calculateRefSpecs(FETCH_TYPE type,
+			String remoteName) {
 		List<RefSpec> specs = new ArrayList<>();
-		if (!fetchAll) {
-			RefSpec tags = new RefSpec();
-			tags = tags.setForceUpdate(true);
-			tags = tags.setSourceDestination(Constants.R_TAGS + '*',
-					Constants.R_TAGS + '*');
-			for (String selectedRef : branchesToClone) {
-				if (heads.matchSource(selectedRef)) {
-					specs.add(heads.expandFromSource(selectedRef));
-				} else if (tags.matchSource(selectedRef)) {
-					specs.add(tags.expandFromSource(selectedRef));
-				}
-			}
+		if (type == FETCH_TYPE.MIRROR) {
+			specs.add(new RefSpec().setForceUpdate(true).setSourceDestination(
+					Constants.R_REFS + '*', Constants.R_REFS + '*'));
 		} else {
-			// We'll fetch the tags anyway.
-			specs.add(heads);
+			RefSpec heads = new RefSpec();
+			heads = heads.setForceUpdate(true);
+			final String dst = (bare ? Constants.R_HEADS
+					: Constants.R_REMOTES + remoteName + '/') + '*';
+			heads = heads.setSourceDestination(Constants.R_HEADS + '*', dst);
+			if (type == FETCH_TYPE.MULTIPLE_BRANCHES) {
+				RefSpec tags = new RefSpec().setForceUpdate(true)
+						.setSourceDestination(Constants.R_TAGS + '*',
+								Constants.R_TAGS + '*');
+				for (String selectedRef : branchesToClone) {
+					if (heads.matchSource(selectedRef)) {
+						specs.add(heads.expandFromSource(selectedRef));
+					} else if (tags.matchSource(selectedRef)) {
+						specs.add(tags.expandFromSource(selectedRef));
+					}
+				}
+			} else {
+				// We'll fetch the tags anyway.
+				specs.add(heads);
+			}
 		}
 		return specs;
 	}
@@ -404,6 +412,10 @@ public class CloneCommand extends TransportCommand<CloneCommand, Git> {
 		ObjectId headId = idHEAD != null ? idHEAD.getObjectId() : null;
 		if (headId == null) {
 			return null;
+		}
+
+		if (idHEAD != null && idHEAD.isSymbolic()) {
+			return idHEAD.getTarget();
 		}
 
 		Ref master = result.getAdvertisedRef(Constants.R_HEADS
@@ -614,6 +626,26 @@ public class CloneCommand extends TransportCommand<CloneCommand, Git> {
 	}
 
 	/**
+	 * Set up a mirror of the source repository. This implies that a bare
+	 * repository will be created. Compared to {@link #setBare},
+	 * {@code #setMirror} not only maps local branches of the source to local
+	 * branches of the target, it maps all refs (including remote-tracking
+	 * branches, notes etc.) and sets up a refspec configuration such that all
+	 * these refs are overwritten by a git remote update in the target
+	 * repository.
+	 *
+	 * @param mirror
+	 *            whether to mirror all refs from the source repository
+	 *
+	 * @return {@code this}
+	 * @since 5.6
+	 */
+	public CloneCommand setMirror(boolean mirror) {
+		this.mirror = mirror;
+		return this;
+	}
+
+	/**
 	 * Set whether to clone submodules
 	 *
 	 * @param cloneSubmodules
@@ -630,8 +662,9 @@ public class CloneCommand extends TransportCommand<CloneCommand, Git> {
 	 * Set the branches or tags to clone.
 	 * <p>
 	 * This is ignored if {@link #setCloneAllBranches(boolean)
-	 * setCloneAllBranches(true)} is used. If {@code branchesToClone} is
-	 * {@code null} or empty, it's also ignored and all branches will be cloned.
+	 * setCloneAllBranches(true)} or {@link #setMirror(boolean) setMirror(true)}
+	 * is used. If {@code branchesToClone} is {@code null} or empty, it's also
+	 * ignored.
 	 * </p>
 	 *
 	 * @param branchesToClone
@@ -643,6 +676,30 @@ public class CloneCommand extends TransportCommand<CloneCommand, Git> {
 	public CloneCommand setBranchesToClone(Collection<String> branchesToClone) {
 		this.branchesToClone = branchesToClone;
 		return this;
+	}
+
+	/**
+	 * Set the tag option used for the remote configuration explicitly.
+	 *
+	 * @param tagOption
+	 *            tag option to be used for the remote config
+	 * @return {@code this}
+	 * @since 5.8
+	 */
+	public CloneCommand setTagOption(TagOpt tagOption) {
+		this.tagOption = tagOption;
+		return this;
+	}
+
+	/**
+	 * Set the --no-tags option. Tags are not cloned now and the remote
+	 * configuration is initialized with the --no-tags option as well.
+	 *
+	 * @return {@code this}
+	 * @since 5.8
+	 */
+	public CloneCommand setNoTags() {
+		return setTagOption(TagOpt.NO_TAGS);
 	}
 
 	/**

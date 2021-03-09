@@ -13,6 +13,8 @@ HELPERS = glob(
 ) + [PKG + c for c in [
     "api/AbstractRemoteCommandTest.java",
     "diff/AbstractDiffTestCase.java",
+    "internal/revwalk/ObjectReachabilityTestCase.java",
+    "internal/revwalk/ReachabilityCheckerTestCase.java",
     "internal/storage/file/GcTestCase.java",
     "internal/storage/file/PackIndexTestCase.java",
     "internal/storage/file/XInputStream.java",
@@ -20,7 +22,6 @@ HELPERS = glob(
     "nls/MissingPropertyBundle.java",
     "nls/NoPropertiesBundle.java",
     "nls/NonTranslatedBundle.java",
-    "revwalk/ReachabilityCheckerTestCase.java",
     "revwalk/RevQueueTestCase.java",
     "revwalk/RevWalkTestCase.java",
     "transport/ObjectIdMatcher.java",
@@ -40,9 +41,8 @@ DATA = [
 
 EXCLUDED = [
     PKG + "api/SecurityManagerTest.java",
+    PKG + "api/SecurityManagerMissingPermissionsTest.java",
 ]
-
-RESOURCES = glob(["resources/**"])
 
 tests(tests = glob(
     ["tst/**/*.java"],
@@ -55,32 +55,12 @@ java_library(
     srcs = HELPERS,
     resources = DATA,
     deps = [
-        "//lib:jsch",
+        "//lib:assertj-core",
         "//lib:junit",
         "//lib:mockito",
         "//lib:slf4j-simple",
         "//org.eclipse.jgit:jgit",
         "//org.eclipse.jgit.junit:junit",
-    ],
-)
-
-java_library(
-    name = "sshd-helpers",
-    testonly = 1,
-    srcs = glob(["src/org/eclipse/jgit/transport/ssh/*.java"]),
-    resource_strip_prefix = "org.eclipse.jgit.test/resources",
-    resources = RESOURCES,
-    visibility = [
-        "//org.eclipse.jgit.ssh.apache.test:__pkg__",
-    ],
-    deps = [
-        "//lib:jsch",
-        "//lib:junit",
-        "//lib:sshd-osgi",
-        "//lib:sshd-sftp",
-        "//org.eclipse.jgit:jgit",
-        "//org.eclipse.jgit.junit:junit",
-        "//org.eclipse.jgit.junit.ssh:junit-ssh",
     ],
 )
 

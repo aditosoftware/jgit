@@ -1,44 +1,11 @@
 /*
- * Copyright (C) 2010, Christian Halstrick <christian.halstrick@sap.com>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2010, Christian Halstrick <christian.halstrick@sap.com> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 package org.eclipse.jgit.api;
 
@@ -105,6 +72,7 @@ public class LogCommand extends GitCommand<Iterable<RevCommit>> {
 	private RevFilter revFilter;
 
 	private final List<PathFilter> pathFilters = new ArrayList<>();
+	private final List<TreeFilter> excludeTreeFilters = new ArrayList<>();
 
 	private int maxCount = -1;
 
@@ -133,9 +101,22 @@ public class LogCommand extends GitCommand<Iterable<RevCommit>> {
 	@Override
 	public Iterable<RevCommit> call() throws GitAPIException, NoHeadException {
 		checkCallable();
-		if (!pathFilters.isEmpty())
-			walk.setTreeFilter(AndTreeFilter.create(
-					PathFilterGroup.create(pathFilters), TreeFilter.ANY_DIFF));
+		List<TreeFilter> filters = new ArrayList<>();
+		if (!pathFilters.isEmpty()) {
+			filters.add(AndTreeFilter.create(PathFilterGroup.create(pathFilters), TreeFilter.ANY_DIFF));
+		}
+		if (!excludeTreeFilters.isEmpty()) {
+			for (TreeFilter f : excludeTreeFilters) {
+				filters.add(AndTreeFilter.create(f, TreeFilter.ANY_DIFF));
+			}
+		}
+		if (!filters.isEmpty()) {
+			if (filters.size() == 1) {
+				filters.add(TreeFilter.ANY_DIFF);
+			}
+			walk.setTreeFilter(AndTreeFilter.create(filters));
+
+		}
 		if (skip > -1 && maxCount > -1)
 			walk.setRevFilter(AndRevFilter.create(SkipRevFilter.create(skip),
 					MaxCountRevFilter.create(maxCount)));
@@ -306,6 +287,24 @@ public class LogCommand extends GitCommand<Iterable<RevCommit>> {
 	public LogCommand addPath(String path) {
 		checkCallable();
 		pathFilters.add(PathFilter.create(path));
+		return this;
+	}
+
+	/**
+	 * Show all commits that are not within any of the specified paths. The path
+	 * must either name a file or a directory exactly and use <code>/</code>
+	 * (slash) as separator. Note that regular expressions or wildcards are not
+	 * yet supported. If a path is both added and excluded from the search, then
+	 * the exclusion wins.
+	 *
+	 * @param path
+	 *            a repository-relative path (with <code>/</code> as separator)
+	 * @return {@code this}
+	 * @since 5.6
+	 */
+	public LogCommand excludePath(String path) {
+		checkCallable();
+		excludeTreeFilters.add(PathFilter.create(path).negate());
 		return this;
 	}
 

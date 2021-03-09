@@ -188,6 +188,13 @@ public class PackStatistics {
 		public long haves;
 
 		/**
+		 * The count of wants that were not advertised by the server.
+		 *
+		 * @since 5.10
+		 */
+		public long notAdvertisedWants;
+
+		/**
 		 * Time in ms spent in the negotiation phase. For non-bidirectional
 		 * transports (e.g., HTTP), this is only for the final request that
 		 * sends back the pack file.
@@ -266,9 +273,31 @@ public class PackStatistics {
 		/** Time in ms spent writing the pack. */
 		public long timeWriting;
 
+		/** Time in ms spent checking reachability.
+		 *
+		 * @since 5.10
+		 */
+		public long reachabilityCheckDuration;
+
 		/** Number of trees traversed in the walk when writing the pack.
-		 * @since 5.4*/
+		 *
+		 * @since 5.4
+		 */
 		public long treesTraversed;
+
+		/**
+		 * Amount of packfile uris sent to the client to download via HTTP.
+		 *
+		 * @since 5.6
+		 */
+		public long offloadedPackfiles;
+
+		/**
+		 * Total size (in bytes) offloaded to HTTP downloads.
+		 *
+		 * @since 5.6
+		 */
+		public long offloadedPackfileSize;
 
 		/**
 		 * Statistics about each object type in the pack (commits, tags, trees
@@ -332,6 +361,16 @@ public class PackStatistics {
 	 */
 	public long getHaves() {
 		return statistics.haves;
+	}
+
+	/**
+	 * Get the count of client wants that were not advertised by the server.
+	 *
+	 * @return count of client wants that were not advertised by the server.
+	 * @since 5.10
+	 */
+	public long getNotAdvertisedWants() {
+		return statistics.notAdvertisedWants;
 	}
 
 	/**
@@ -590,11 +629,39 @@ public class PackStatistics {
 	}
 
 	/**
+	 * Get time in milliseconds spent checking if the client has access to the
+	 * commits they are requesting.
+	 *
+	 * @return time in milliseconds spent checking if the client has access to the
+	 * commits they are requesting.
+	 * @since 5.10
+	 */
+	public long getReachabilityCheckDuration() {
+		return statistics.reachabilityCheckDuration;
+	}
+
+	/**
 	 * @return number of trees traversed in the walk when writing the pack.
 	 * @since 5.4
 	 */
 	public long getTreesTraversed() {
 		return statistics.treesTraversed;
+	}
+
+	/**
+	 * @return amount of packfiles offloaded (sent as "packfile-uri")/
+	 * @since 5.6
+	 */
+	public long getOffloadedPackfiles() {
+		return statistics.offloadedPackfiles;
+	}
+
+	/**
+	 * @return total size (in bytes) offloaded to HTTP downloads.
+	 * @since 5.6
+	 */
+	public long getOffloadedPackfilesSize() {
+		return statistics.offloadedPackfileSize;
 	}
 
 	/**

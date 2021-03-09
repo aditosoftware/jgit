@@ -3,46 +3,13 @@
  * Copyright (C) 2007-2008, Robin Rosenberg <robin.rosenberg@dewire.com>
  * Copyright (C) 2010, Jens Baumgart <jens.baumgart@sap.com>
  * Copyright (C) 2013, Robin Stocker <robin@nibor.org>
- * Copyright (C) 2014, Axel Richard <axel.richard@obeo.fr>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2014, Axel Richard <axel.richard@obeo.fr> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.lib;
@@ -108,7 +75,7 @@ public class IndexDiff {
 	 * @see IndexDiff#getConflictingStageStates()
 	 * @since 3.0
 	 */
-	public static enum StageState {
+	public enum StageState {
 		/**
 		 * Exists in base, but neither in ours nor in theirs.
 		 */
@@ -243,11 +210,11 @@ public class IndexDiff {
 		}
 	}
 
-	private final static int TREE = 0;
+	private static final int TREE = 0;
 
-	private final static int INDEX = 1;
+	private static final int INDEX = 1;
 
-	private final static int WORKDIR = 2;
+	private static final int WORKDIR = 2;
 
 	private final Repository repository;
 
@@ -384,7 +351,32 @@ public class IndexDiff {
 	 * @throws java.io.IOException
 	 */
 	public boolean diff() throws IOException {
-		return diff(null, 0, 0, ""); //$NON-NLS-1$
+		return diff(null);
+	}
+
+	/**
+	 * Run the diff operation. Until this is called, all lists will be empty.
+	 * Use
+	 * {@link #diff(ProgressMonitor, int, int, String, RepositoryBuilderFactory)}
+	 * if a progress monitor is required.
+	 * <p>
+	 * The operation may create repositories for submodules using builders
+	 * provided by the given {@code factory}, if any, and will also close these
+	 * submodule repositories again.
+	 * </p>
+	 *
+	 * @param factory
+	 *            the {@link RepositoryBuilderFactory} to use to create builders
+	 *            to create submodule repositories, if needed; if {@code null},
+	 *            submodule repositories will be built using a plain
+	 *            {@link RepositoryBuilder}.
+	 * @return if anything is different between index, tree, and workdir
+	 * @throws java.io.IOException
+	 * @since 5.6
+	 */
+	public boolean diff(RepositoryBuilderFactory factory)
+			throws IOException {
+		return diff(null, 0, 0, "", factory); //$NON-NLS-1$
 	}
 
 	/**
@@ -409,6 +401,45 @@ public class IndexDiff {
 	 */
 	public boolean diff(final ProgressMonitor monitor, int estWorkTreeSize,
 			int estIndexSize, final String title)
+			throws IOException {
+		return diff(monitor, estWorkTreeSize, estIndexSize, title, null);
+	}
+
+	/**
+	 * Run the diff operation. Until this is called, all lists will be empty.
+	 * <p>
+	 * The operation may be aborted by the progress monitor. In that event it
+	 * will report what was found before the cancel operation was detected.
+	 * Callers should ignore the result if monitor.isCancelled() is true. If a
+	 * progress monitor is not needed, callers should use {@link #diff()}
+	 * instead. Progress reporting is crude and approximate and only intended
+	 * for informing the user.
+	 * </p>
+	 * <p>
+	 * The operation may create repositories for submodules using builders
+	 * provided by the given {@code factory}, if any, and will also close these
+	 * submodule repositories again.
+	 * </p>
+	 *
+	 * @param monitor
+	 *            for reporting progress, may be null
+	 * @param estWorkTreeSize
+	 *            number or estimated files in the working tree
+	 * @param estIndexSize
+	 *            number of estimated entries in the cache
+	 * @param title
+	 *            a {@link java.lang.String} object.
+	 * @param factory
+	 *            the {@link RepositoryBuilderFactory} to use to create builders
+	 *            to create submodule repositories, if needed; if {@code null},
+	 *            submodule repositories will be built using a plain
+	 *            {@link RepositoryBuilder}.
+	 * @return if anything is different between index, tree, and workdir
+	 * @throws java.io.IOException
+	 * @since 5.6
+	 */
+	public boolean diff(ProgressMonitor monitor, int estWorkTreeSize,
+			int estIndexSize, String title, RepositoryBuilderFactory factory)
 			throws IOException {
 		dirCache = repository.readDirCache();
 
@@ -535,64 +566,69 @@ public class IndexDiff {
 		}
 
 		if (ignoreSubmoduleMode != IgnoreSubmoduleMode.ALL) {
-			IgnoreSubmoduleMode localIgnoreSubmoduleMode = ignoreSubmoduleMode;
-			SubmoduleWalk smw = SubmoduleWalk.forIndex(repository);
-			while (smw.next()) {
-				try {
-					if (localIgnoreSubmoduleMode == null)
-						localIgnoreSubmoduleMode = smw.getModulesIgnore();
-					if (IgnoreSubmoduleMode.ALL
-							.equals(localIgnoreSubmoduleMode))
-						continue;
-				} catch (ConfigInvalidException e) {
-					throw new IOException(MessageFormat.format(
-							JGitText.get().invalidIgnoreParamSubmodule,
-							smw.getPath()), e);
-				}
-				try (Repository subRepo = smw.getRepository()) {
-					String subRepoPath = smw.getPath();
-					if (subRepo != null) {
-						ObjectId subHead = subRepo.resolve("HEAD"); //$NON-NLS-1$
-						if (subHead != null
-								&& !subHead.equals(smw.getObjectId())) {
-							modified.add(subRepoPath);
-							recordFileMode(subRepoPath, FileMode.GITLINK);
-						} else if (ignoreSubmoduleMode != IgnoreSubmoduleMode.DIRTY) {
-							IndexDiff smid = submoduleIndexDiffs.get(smw
-									.getPath());
-							if (smid == null) {
-								smid = new IndexDiff(subRepo,
-										smw.getObjectId(),
-										wTreeIt.getWorkingTreeIterator(subRepo));
-								submoduleIndexDiffs.put(subRepoPath, smid);
-							}
-							if (smid.diff()) {
-								if (ignoreSubmoduleMode == IgnoreSubmoduleMode.UNTRACKED
-										&& smid.getAdded().isEmpty()
-										&& smid.getChanged().isEmpty()
-										&& smid.getConflicting().isEmpty()
-										&& smid.getMissing().isEmpty()
-										&& smid.getModified().isEmpty()
-										&& smid.getRemoved().isEmpty()) {
-									continue;
-								}
+			try (SubmoduleWalk smw = new SubmoduleWalk(repository)) {
+				smw.setTree(new DirCacheIterator(dirCache));
+				smw.setBuilderFactory(factory);
+				while (smw.next()) {
+					IgnoreSubmoduleMode localIgnoreSubmoduleMode = ignoreSubmoduleMode;
+					try {
+						if (localIgnoreSubmoduleMode == null)
+							localIgnoreSubmoduleMode = smw.getModulesIgnore();
+						if (IgnoreSubmoduleMode.ALL
+								.equals(localIgnoreSubmoduleMode))
+							continue;
+					} catch (ConfigInvalidException e) {
+						throw new IOException(MessageFormat.format(
+								JGitText.get().invalidIgnoreParamSubmodule,
+								smw.getPath()), e);
+					}
+					try (Repository subRepo = smw.getRepository()) {
+						String subRepoPath = smw.getPath();
+						if (subRepo != null) {
+							ObjectId subHead = subRepo.resolve("HEAD"); //$NON-NLS-1$
+							if (subHead != null
+									&& !subHead.equals(smw.getObjectId())) {
 								modified.add(subRepoPath);
 								recordFileMode(subRepoPath, FileMode.GITLINK);
+							} else if (localIgnoreSubmoduleMode != IgnoreSubmoduleMode.DIRTY) {
+								IndexDiff smid = submoduleIndexDiffs
+										.get(smw.getPath());
+								if (smid == null) {
+									smid = new IndexDiff(subRepo,
+											smw.getObjectId(),
+											wTreeIt.getWorkingTreeIterator(
+													subRepo));
+									submoduleIndexDiffs.put(subRepoPath, smid);
+								}
+								if (smid.diff(factory)) {
+									if (localIgnoreSubmoduleMode == IgnoreSubmoduleMode.UNTRACKED
+											&& smid.getAdded().isEmpty()
+											&& smid.getChanged().isEmpty()
+											&& smid.getConflicting().isEmpty()
+											&& smid.getMissing().isEmpty()
+											&& smid.getModified().isEmpty()
+											&& smid.getRemoved().isEmpty()) {
+										continue;
+									}
+									modified.add(subRepoPath);
+									recordFileMode(subRepoPath,
+											FileMode.GITLINK);
+								}
 							}
-						}
-					} else if (missingSubmodules.remove(subRepoPath)) {
-						// If the directory is there and empty but the submodule
-						// repository in .git/modules doesn't exist yet it isn't
-						// "missing".
-						File gitDir = new File(
-								new File(repository.getDirectory(),
-										Constants.MODULES),
-								subRepoPath);
-						if (!gitDir.isDirectory()) {
-							File dir = SubmoduleWalk.getSubmoduleDirectory(
-									repository, subRepoPath);
-							if (dir.isDirectory() && !hasFiles(dir)) {
-								missing.remove(subRepoPath);
+						} else if (missingSubmodules.remove(subRepoPath)) {
+							// If the directory is there and empty but the
+							// submodule repository in .git/modules doesn't
+							// exist yet it isn't "missing".
+							File gitDir = new File(
+									new File(repository.getDirectory(),
+											Constants.MODULES),
+									subRepoPath);
+							if (!gitDir.isDirectory()) {
+								File dir = SubmoduleWalk.getSubmoduleDirectory(
+										repository, subRepoPath);
+								if (dir.isDirectory() && !hasFiles(dir)) {
+									missing.remove(subRepoPath);
+								}
 							}
 						}
 					}
@@ -602,16 +638,17 @@ public class IndexDiff {
 		}
 
 		// consume the remaining work
-		if (monitor != null)
+		if (monitor != null) {
 			monitor.endTask();
+		}
 
 		ignored = indexDiffFilter.getIgnoredPaths();
 		if (added.isEmpty() && changed.isEmpty() && removed.isEmpty()
 				&& missing.isEmpty() && modified.isEmpty()
-				&& untracked.isEmpty())
+				&& untracked.isEmpty()) {
 			return false;
-		else
-			return true;
+		}
+		return true;
 	}
 
 	private boolean hasFiles(File directory) {

@@ -1,44 +1,11 @@
 /*
- * Copyright (C) 2008, Shawn O. Pearce <spearce@spearce.org>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2008, 2020 Shawn O. Pearce <spearce@spearce.org> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.util;
@@ -55,12 +22,12 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
-import java.io.PrintStream;
 import java.io.Writer;
 import java.nio.charset.Charset;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.FileStore;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
@@ -81,11 +48,15 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -98,6 +69,7 @@ import org.eclipse.jgit.errors.ConfigInvalidException;
 import org.eclipse.jgit.errors.LockFailedException;
 import org.eclipse.jgit.internal.JGitText;
 import org.eclipse.jgit.internal.storage.file.FileSnapshot;
+import org.eclipse.jgit.lib.Config;
 import org.eclipse.jgit.lib.ConfigConstants;
 import org.eclipse.jgit.lib.Constants;
 import org.eclipse.jgit.lib.Repository;
@@ -147,15 +119,15 @@ public abstract class FS {
 		 */
 		public FS detect(Boolean cygwinUsed) {
 			if (SystemReader.getInstance().isWindows()) {
-				if (cygwinUsed == null)
+				if (cygwinUsed == null) {
 					cygwinUsed = Boolean.valueOf(FS_Win32_Cygwin.isCygwin());
-				if (cygwinUsed.booleanValue())
+				}
+				if (cygwinUsed.booleanValue()) {
 					return new FS_Win32_Cygwin();
-				else
-					return new FS_Win32();
-			} else {
-				return new FS_POSIX();
+				}
+				return new FS_Win32();
 			}
+			return new FS_POSIX();
 		}
 	}
 
@@ -211,14 +183,20 @@ public abstract class FS {
 	 *
 	 * @since 5.1.9
 	 */
-	public final static class FileStoreAttributes {
+	public static final class FileStoreAttributes {
 
+		/**
+		 * Marker to detect undefined values when reading from the config file.
+		 */
 		private static final Duration UNDEFINED_DURATION = Duration
 				.ofNanos(Long.MAX_VALUE);
 
 		/**
 		 * Fallback filesystem timestamp resolution. The worst case timestamp
 		 * resolution on FAT filesystems is 2 seconds.
+		 * <p>
+		 * Must be at least 1 second.
+		 * </p>
 		 */
 		public static final Duration FALLBACK_TIMESTAMP_RESOLUTION = Duration
 				.ofMillis(2000);
@@ -231,25 +209,101 @@ public abstract class FS {
 		public static final FileStoreAttributes FALLBACK_FILESTORE_ATTRIBUTES = new FileStoreAttributes(
 				FALLBACK_TIMESTAMP_RESOLUTION);
 
-		private static final Map<FileStore, FileStoreAttributes> attributeCache = new ConcurrentHashMap<>();
+		private static final long ONE_MICROSECOND = TimeUnit.MICROSECONDS
+				.toNanos(1);
 
-		private static final SimpleLruCache<Path, FileStoreAttributes> attrCacheByPath = new SimpleLruCache<>(
-				100, 0.2f);
+		private static final long ONE_MILLISECOND = TimeUnit.MILLISECONDS
+				.toNanos(1);
 
-		private static AtomicBoolean background = new AtomicBoolean();
+		private static final long ONE_SECOND = TimeUnit.SECONDS.toNanos(1);
 
-		private static Map<FileStore, Lock> locks = new ConcurrentHashMap<>();
+		/**
+		 * Minimum file system timestamp resolution granularity to check, in
+		 * nanoseconds. Should be a positive power of ten smaller than
+		 * {@link #ONE_SECOND}. Must be strictly greater than zero, i.e.,
+		 * minimum value is 1 nanosecond.
+		 * <p>
+		 * Currently set to 1 microsecond, but could also be lower still.
+		 * </p>
+		 */
+		private static final long MINIMUM_RESOLUTION_NANOS = ONE_MICROSECOND;
 
-		private static void setBackground(boolean async) {
-			background.set(async);
-		}
-
-		private static final String javaVersionPrefix = System
+		private static final String JAVA_VERSION_PREFIX = System
 				.getProperty("java.vendor") + '|' //$NON-NLS-1$
 				+ System.getProperty("java.version") + '|'; //$NON-NLS-1$
 
 		private static final Duration FALLBACK_MIN_RACY_INTERVAL = Duration
 				.ofMillis(10);
+
+		private static final Map<FileStore, FileStoreAttributes> attributeCache = new ConcurrentHashMap<>();
+
+		private static final SimpleLruCache<Path, FileStoreAttributes> attrCacheByPath = new SimpleLruCache<>(
+				100, 0.2f);
+
+		private static final AtomicBoolean background = new AtomicBoolean();
+
+		private static final Map<FileStore, Lock> locks = new ConcurrentHashMap<>();
+
+		private static final AtomicInteger threadNumber = new AtomicInteger(1);
+
+		/**
+		 * Don't use the default thread factory of the ForkJoinPool for the
+		 * CompletableFuture; it runs without any privileges, which causes
+		 * trouble if a SecurityManager is present.
+		 * <p>
+		 * Instead use normal daemon threads. They'll belong to the
+		 * SecurityManager's thread group, or use the one of the calling thread,
+		 * as appropriate.
+		 * </p>
+		 *
+		 * @see java.util.concurrent.Executors#newCachedThreadPool()
+		 */
+		private static final Executor FUTURE_RUNNER = new ThreadPoolExecutor(0,
+				5, 30L, TimeUnit.SECONDS, new LinkedBlockingQueue<Runnable>(),
+				runnable -> {
+					Thread t = new Thread(runnable,
+							"JGit-FileStoreAttributeReader-" //$NON-NLS-1$
+							+ threadNumber.getAndIncrement());
+					// Make sure these threads don't prevent application/JVM
+					// shutdown.
+					t.setDaemon(true);
+					return t;
+				});
+
+		/**
+		 * Use a separate executor with at most one thread to synchronize
+		 * writing to the config. We write asynchronously since the config
+		 * itself might be on a different file system, which might otherwise
+		 * lead to locking problems.
+		 * <p>
+		 * Writing the config must not use a daemon thread, otherwise we may
+		 * leave an inconsistent state on disk when the JVM shuts down. Use a
+		 * small keep-alive time to avoid delays on shut-down.
+		 * </p>
+		 */
+		private static final Executor SAVE_RUNNER = new ThreadPoolExecutor(0, 1,
+				1L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>(),
+				runnable -> {
+					Thread t = new Thread(runnable,
+							"JGit-FileStoreAttributeWriter-" //$NON-NLS-1$
+							+ threadNumber.getAndIncrement());
+					// Make sure these threads do finish
+					t.setDaemon(false);
+					return t;
+				});
+
+		/**
+		 * Whether FileStore attributes should be determined asynchronously
+		 *
+		 * @param async
+		 *            whether FileStore attributes should be determined
+		 *            asynchronously. If false access to cached attributes may
+		 *            block for some seconds for the first call per FileStore
+		 * @since 5.6.2
+		 */
+		public static void setBackground(boolean async) {
+			background.set(async);
+		}
 
 		/**
 		 * Configures size and purge factor of the path-based cache for file
@@ -282,11 +336,18 @@ public abstract class FS {
 			try {
 				path = path.toAbsolutePath();
 				Path dir = Files.isDirectory(path) ? path : path.getParent();
+				if (dir == null) {
+					return FALLBACK_FILESTORE_ATTRIBUTES;
+				}
 				FileStoreAttributes cached = attrCacheByPath.get(dir);
 				if (cached != null) {
 					return cached;
 				}
 				FileStoreAttributes attrs = getFileStoreAttributes(dir);
+				if (attrs == null) {
+					// Don't cache, result might be late
+					return FALLBACK_FILESTORE_ATTRIBUTES;
+				}
 				attrCacheByPath.put(dir, attrs);
 				return attrs;
 			} catch (SecurityException e) {
@@ -334,8 +395,7 @@ public abstract class FS {
 								// Some earlier future might have set the value
 								// and removed itself since we checked for the
 								// value above. Hence check cache again.
-								FileStoreAttributes c = attributeCache
-										.get(s);
+								FileStoreAttributes c = attributeCache.get(s);
 								if (c != null) {
 									return Optional.of(c);
 								}
@@ -361,7 +421,9 @@ public abstract class FS {
 									if (LOG.isDebugEnabled()) {
 										LOG.debug(c.toString());
 									}
-									saveToConfig(s, c);
+									FileStoreAttributes newAttrs = c;
+									SAVE_RUNNER.execute(
+											() -> saveToConfig(s, newAttrs));
 								}
 								attributes = Optional.of(c);
 							} finally {
@@ -369,19 +431,23 @@ public abstract class FS {
 								locks.remove(s);
 							}
 							return attributes;
-						});
+						}, FUTURE_RUNNER);
 				f = f.exceptionally(e -> {
 					LOG.error(e.getLocalizedMessage(), e);
 					return Optional.empty();
 				});
 				// even if measuring in background wait a little - if the result
 				// arrives, it's better than returning the large fallback
-				Optional<FileStoreAttributes> d = background.get() ? f.get(
+				boolean runInBackground = background.get();
+				Optional<FileStoreAttributes> d = runInBackground ? f.get(
 						100, TimeUnit.MILLISECONDS) : f.get();
 				if (d.isPresent()) {
 					return d.get();
+				} else if (runInBackground) {
+					// return null until measurement is finished
+					return null;
 				}
-				// return fallback until measurement is finished
+				// fall through and return fallback
 			} catch (IOException | InterruptedException
 					| ExecutionException | CancellationException e) {
 				LOG.error(e.getMessage(), e);
@@ -447,7 +513,10 @@ public abstract class FS {
 		}
 
 		private static void write(Path p, String body) throws IOException {
-			FileUtils.mkdirs(p.getParent().toFile(), true);
+			Path parent = p.getParent();
+			if (parent != null) {
+				FileUtils.mkdirs(parent.toFile(), true);
+			}
 			try (Writer w = new OutputStreamWriter(Files.newOutputStream(p),
 					UTF_8)) {
 				w.write(body);
@@ -461,25 +530,27 @@ public abstract class FS {
 
 		private static Optional<Duration> measureFsTimestampResolution(
 			FileStore s, Path dir) {
-			LOG.debug("{}: start measure timestamp resolution {} in {}", //$NON-NLS-1$
-					Thread.currentThread(), s, dir);
+			if (LOG.isDebugEnabled()) {
+				LOG.debug("{}: start measure timestamp resolution {} in {}", //$NON-NLS-1$
+						Thread.currentThread(), s, dir);
+			}
 			Path probe = dir.resolve(".probe-" + UUID.randomUUID()); //$NON-NLS-1$
 			try {
 				Files.createFile(probe);
-				FileTime t1 = Files.getLastModifiedTime(probe);
-				FileTime t2 = t1;
-				Instant t1i = t1.toInstant();
-				for (long i = 1; t2.compareTo(t1) <= 0; i += 1 + i / 20) {
-					Files.setLastModifiedTime(probe,
-							FileTime.from(t1i.plusNanos(i * 1000)));
-					t2 = Files.getLastModifiedTime(probe);
-				}
-				Duration fsResolution = Duration.between(t1.toInstant(), t2.toInstant());
+				Duration fsResolution = getFsResolution(s, dir, probe);
 				Duration clockResolution = measureClockResolution();
 				fsResolution = fsResolution.plus(clockResolution);
-				LOG.debug("{}: end measure timestamp resolution {} in {}", //$NON-NLS-1$
-						Thread.currentThread(), s, dir);
+				if (LOG.isDebugEnabled()) {
+					LOG.debug(
+							"{}: end measure timestamp resolution {} in {}; got {}", //$NON-NLS-1$
+							Thread.currentThread(), s, dir, fsResolution);
+				}
 				return Optional.of(fsResolution);
+			} catch (SecurityException e) {
+				// Log it here; most likely deleteProbe() below will also run
+				// into a SecurityException, and then this one will be lost
+				// without trace.
+				LOG.warn(e.getLocalizedMessage(), e);
 			} catch (AccessDeniedException e) {
 				LOG.warn(e.getLocalizedMessage(), e); // see bug 548648
 			} catch (IOException e) {
@@ -488,6 +559,92 @@ public abstract class FS {
 				deleteProbe(probe);
 			}
 			return Optional.empty();
+		}
+
+		private static Duration getFsResolution(FileStore s, Path dir,
+				Path probe) throws IOException {
+			File probeFile = probe.toFile();
+			FileTime t1 = Files.getLastModifiedTime(probe);
+			Instant t1i = t1.toInstant();
+			FileTime t2;
+			Duration last = FALLBACK_TIMESTAMP_RESOLUTION;
+			long minScale = MINIMUM_RESOLUTION_NANOS;
+			long scale = ONE_SECOND;
+			long high = TimeUnit.MILLISECONDS.toSeconds(last.toMillis());
+			long low = 0;
+			// Try up-front at microsecond and millisecond
+			long[] tries = { ONE_MICROSECOND, ONE_MILLISECOND };
+			for (long interval : tries) {
+				if (interval >= ONE_MILLISECOND) {
+					probeFile.setLastModified(
+							t1i.plusNanos(interval).toEpochMilli());
+				} else {
+					Files.setLastModifiedTime(probe,
+							FileTime.from(t1i.plusNanos(interval)));
+				}
+				t2 = Files.getLastModifiedTime(probe);
+				if (t2.compareTo(t1) > 0) {
+					Duration diff = Duration.between(t1i, t2.toInstant());
+					if (!diff.isZero() && !diff.isNegative()
+							&& diff.compareTo(last) < 0) {
+						scale = interval;
+						high = 1;
+						last = diff;
+						break;
+					}
+				} else {
+					// Makes no sense going below
+					minScale = Math.max(minScale, interval);
+				}
+			}
+			// Binary search loop
+			while (high > low) {
+				long mid = (high + low) / 2;
+				if (mid == 0) {
+					// Smaller than current scale. Adjust scale.
+					long newScale = scale / 10;
+					if (newScale < minScale) {
+						break;
+					}
+					high *= scale / newScale;
+					low *= scale / newScale;
+					scale = newScale;
+					mid = (high + low) / 2;
+				}
+				long delta = mid * scale;
+				if (scale >= ONE_MILLISECOND) {
+					probeFile.setLastModified(
+							t1i.plusNanos(delta).toEpochMilli());
+				} else {
+					Files.setLastModifiedTime(probe,
+							FileTime.from(t1i.plusNanos(delta)));
+				}
+				t2 = Files.getLastModifiedTime(probe);
+				int cmp = t2.compareTo(t1);
+				if (cmp > 0) {
+					high = mid;
+					Duration diff = Duration.between(t1i, t2.toInstant());
+					if (diff.isZero() || diff.isNegative()) {
+						LOG.warn(JGitText.get().logInconsistentFiletimeDiff,
+								Thread.currentThread(), s, dir, t2, t1, diff,
+								last);
+						break;
+					} else if (diff.compareTo(last) > 0) {
+						LOG.warn(JGitText.get().logLargerFiletimeDiff,
+								Thread.currentThread(), s, dir, diff, last);
+						break;
+					}
+					last = diff;
+				} else if (cmp < 0) {
+					LOG.warn(JGitText.get().logSmallerFiletime,
+							Thread.currentThread(), s, dir, t2, t1, last);
+					break;
+				} else {
+					// No discernible difference
+					low = mid + 1;
+				}
+			}
+			return last;
 		}
 
 		private static Duration measureClockResolution() {
@@ -545,9 +702,9 @@ public abstract class FS {
 
 		private static void saveToConfig(FileStore s,
 				FileStoreAttributes c) {
-			StoredConfig userConfig;
+			StoredConfig jgitConfig;
 			try {
-				userConfig = SystemReader.getInstance().getUserConfig();
+				jgitConfig = SystemReader.getInstance().getJGitConfig();
 			} catch (IOException | ConfigInvalidException e) {
 				LOG.error(JGitText.get().saveFileStoreAttributesFailed, e);
 				return;
@@ -568,20 +725,19 @@ public abstract class FS {
 			String key = getConfigKey(s);
 			while (!succeeded && retries < max_retries) {
 				try {
-					userConfig.load();
-					userConfig.setString(
+					jgitConfig.setString(
 							ConfigConstants.CONFIG_FILESYSTEM_SECTION, key,
 							ConfigConstants.CONFIG_KEY_TIMESTAMP_RESOLUTION,
 							String.format("%d %s", //$NON-NLS-1$
 									Long.valueOf(resolutionValue),
 									resolutionUnit.name().toLowerCase()));
-					userConfig.setString(
+					jgitConfig.setString(
 							ConfigConstants.CONFIG_FILESYSTEM_SECTION, key,
 							ConfigConstants.CONFIG_KEY_MIN_RACY_THRESHOLD,
 							String.format("%d %s", //$NON-NLS-1$
 									Long.valueOf(minRacyThresholdValue),
 									minRacyThresholdUnit.name().toLowerCase()));
-					userConfig.save();
+					jgitConfig.save();
 					succeeded = true;
 				} catch (LockFailedException e) {
 					// race with another thread, wait a bit and try again
@@ -590,11 +746,11 @@ public abstract class FS {
 						if (retries < max_retries) {
 							Thread.sleep(100);
 							LOG.debug("locking {} failed, retries {}/{}", //$NON-NLS-1$
-									userConfig, Integer.valueOf(retries),
+									jgitConfig, Integer.valueOf(retries),
 									Integer.valueOf(max_retries));
 						} else {
 							LOG.warn(MessageFormat.format(
-									JGitText.get().lockFailedRetry, userConfig,
+									JGitText.get().lockFailedRetry, jgitConfig,
 									Integer.valueOf(retries)));
 						}
 					} catch (InterruptedException e1) {
@@ -603,12 +759,7 @@ public abstract class FS {
 					}
 				} catch (IOException e) {
 					LOG.error(MessageFormat.format(
-							JGitText.get().cannotSaveConfig, userConfig), e);
-					break;
-				} catch (ConfigInvalidException e) {
-					LOG.error(MessageFormat.format(
-							JGitText.get().repositoryConfigFileInvalid,
-							userConfig, e.getMessage()));
+							JGitText.get().cannotSaveConfig, jgitConfig), e);
 					break;
 				}
 			}
@@ -631,7 +782,7 @@ public abstract class FS {
 			} else {
 				storeKey = s.name();
 			}
-			return javaVersionPrefix + storeKey;
+			return JAVA_VERSION_PREFIX + storeKey;
 		}
 
 		private static TimeUnit getUnit(long nanos) {
@@ -694,7 +845,7 @@ public abstract class FS {
 	/** The auto-detected implementation selected for this operating system and JRE. */
 	public static final FS DETECTED = detect();
 
-	private volatile static FSFactory factory;
+	private static volatile FSFactory factory;
 
 	/**
 	 * Auto-detect the appropriate file system abstraction.
@@ -713,7 +864,9 @@ public abstract class FS {
 	 *            asynchronously. If false access to cached attributes may block
 	 *            for some seconds for the first call per FileStore
 	 * @since 5.1.9
+	 * @deprecated Use {@link FileStoreAttributes#setBackground} instead
 	 */
+	@Deprecated
 	public static void setAsyncFileStoreAttributes(boolean asynch) {
 		FileStoreAttributes.setBackground(asynch);
 	}
@@ -842,7 +995,7 @@ public abstract class FS {
 				try {
 					FileUtils.delete(tempFile);
 				} catch (IOException e) {
-					throw new RuntimeException(e); // panic
+					LOG.error(JGitText.get().cannotDeleteFile, tempFile);
 				}
 			}
 		}
@@ -932,8 +1085,9 @@ public abstract class FS {
 	}
 
 	/**
-	 * Set the last modified time of a file system object. If the OS/JRE support
-	 * symbolic links, the link is modified, not the target,
+	 * Set the last modified time of a file system object.
+	 * <p>
+	 * For symlinks it sets the modified time of the link target.
 	 *
 	 * @param f
 	 *            a {@link java.io.File} object.
@@ -949,8 +1103,9 @@ public abstract class FS {
 	}
 
 	/**
-	 * Set the last modified time of a file system object. If the OS/JRE support
-	 * symbolic links, the link is modified, not the target,
+	 * Set the last modified time of a file system object.
+	 * <p>
+	 * For symlinks it sets the modified time of the link target.
 	 *
 	 * @param p
 	 *            a {@link Path} object.
@@ -1029,10 +1184,34 @@ public abstract class FS {
 	public File userHome() {
 		Holder<File> p = userHome;
 		if (p == null) {
-			p = new Holder<>(userHomeImpl());
+			p = new Holder<>(safeUserHomeImpl());
 			userHome = p;
 		}
 		return p.value;
+	}
+
+	private File safeUserHomeImpl() {
+		File home;
+		try {
+			home = userHomeImpl();
+			if (home != null) {
+				home.toPath();
+				return home;
+			}
+		} catch (RuntimeException e) {
+			LOG.error(JGitText.get().exceptionWhileFindingUserHome, e);
+		}
+		home = defaultUserHomeImpl();
+		if (home != null) {
+			try {
+				home.toPath();
+				return home;
+			} catch (InvalidPathException e) {
+				LOG.error(MessageFormat
+						.format(JGitText.get().invalidHomeDirectory, home), e);
+			}
+		}
+		return null;
 	}
 
 	/**
@@ -1074,6 +1253,10 @@ public abstract class FS {
 	 * @return the user's home directory; null if the user does not have one.
 	 */
 	protected File userHomeImpl() {
+		return defaultUserHomeImpl();
+	}
+
+	private File defaultUserHomeImpl() {
 		final String home = AccessController.doPrivileged(
 				(PrivilegedAction<String>) () -> System.getProperty("user.home") //$NON-NLS-1$
 		);
@@ -1197,14 +1380,13 @@ public abstract class FS {
 					gobbler.join();
 					if (rc == 0 && !gobbler.fail.get()) {
 						return r;
-					} else {
-						if (debug) {
-							LOG.debug("readpipe rc=" + rc); //$NON-NLS-1$
-						}
-						throw new CommandFailedException(rc,
-								gobbler.errorMessage.get(),
-								gobbler.exception.get());
 					}
+					if (debug) {
+						LOG.debug("readpipe rc=" + rc); //$NON-NLS-1$
+					}
+					throw new CommandFailedException(rc,
+							gobbler.errorMessage.get(),
+							gobbler.exception.get());
 				} catch (InterruptedException ie) {
 					// Stop bothering me, I have a zombie to reap.
 				}
@@ -1322,7 +1504,7 @@ public abstract class FS {
 		String v;
 		try {
 			v = readPipe(gitExe.getParentFile(),
-				new String[] { "git", "--version" }, //$NON-NLS-1$ //$NON-NLS-2$
+					new String[] { gitExe.getPath(), "--version" }, //$NON-NLS-1$
 				Charset.defaultCharset().name());
 		} catch (CommandFailedException e) {
 			LOG.warn(e.getMessage());
@@ -1341,7 +1523,8 @@ public abstract class FS {
 		String w;
 		try {
 			w = readPipe(gitExe.getParentFile(),
-				new String[] { "git", "config", "--system", "--edit" }, //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+					new String[] { gitExe.getPath(), "config", "--system", //$NON-NLS-1$ //$NON-NLS-2$
+							"--edit" }, //$NON-NLS-1$
 				Charset.defaultCharset().name(), env);
 		} catch (CommandFailedException e) {
 			LOG.warn(e.getMessage());
@@ -1689,18 +1872,18 @@ public abstract class FS {
 	 * @throws org.eclipse.jgit.api.errors.JGitInternalException
 	 *             if we fail to run the hook somehow. Causes may include an
 	 *             interrupted process or I/O errors.
-	 * @since 4.0
+	 * @since 5.11
 	 */
 	public ProcessResult runHookIfPresent(Repository repository,
 			final String hookName,
-			String[] args, PrintStream outRedirect, PrintStream errRedirect,
+			String[] args, OutputStream outRedirect, OutputStream errRedirect,
 			String stdinArgs) throws JGitInternalException {
 		return new ProcessResult(Status.NOT_SUPPORTED);
 	}
 
 	/**
 	 * See
-	 * {@link #runHookIfPresent(Repository, String, String[], PrintStream, PrintStream, String)}
+	 * {@link #runHookIfPresent(Repository, String, String[], OutputStream, OutputStream, String)}
 	 * . Should only be called by FS supporting shell scripts execution.
 	 *
 	 * @param repository
@@ -1725,26 +1908,24 @@ public abstract class FS {
 	 * @throws org.eclipse.jgit.api.errors.JGitInternalException
 	 *             if we fail to run the hook somehow. Causes may include an
 	 *             interrupted process or I/O errors.
-	 * @since 4.0
+	 * @since 5.11
 	 */
 	protected ProcessResult internalRunHookIfPresent(Repository repository,
-			final String hookName, String[] args, PrintStream outRedirect,
-			PrintStream errRedirect, String stdinArgs)
+			final String hookName, String[] args, OutputStream outRedirect,
+			OutputStream errRedirect, String stdinArgs)
 			throws JGitInternalException {
-		final File hookFile = findHook(repository, hookName);
-		if (hookFile == null)
+		File hookFile = findHook(repository, hookName);
+		if (hookFile == null || hookName == null) {
 			return new ProcessResult(Status.NOT_PRESENT);
+		}
 
-		final String hookPath = hookFile.getAbsolutePath();
-		final File runDirectory;
-		if (repository.isBare())
-			runDirectory = repository.getDirectory();
-		else
-			runDirectory = repository.getWorkTree();
-		final String cmd = relativize(runDirectory.getAbsolutePath(),
-				hookPath);
-		ProcessBuilder hookProcess = runInShell(cmd, args);
-		hookProcess.directory(runDirectory);
+		File runDirectory = getRunDirectory(repository, hookName);
+		if (runDirectory == null) {
+			return new ProcessResult(Status.NOT_PRESENT);
+		}
+		String cmd = hookFile.getAbsolutePath();
+		ProcessBuilder hookProcess = runInShell(shellQuote(cmd), args);
+		hookProcess.directory(runDirectory.getAbsoluteFile());
 		Map<String, String> environment = hookProcess.environment();
 		environment.put(Constants.GIT_DIR_KEY,
 				repository.getDirectory().getAbsolutePath());
@@ -1766,6 +1947,21 @@ public abstract class FS {
 		}
 	}
 
+	/**
+	 * Quote a string (such as a file system path obtained from a Java
+	 * {@link File} or {@link Path} object) such that it can be passed as first
+	 * argument to {@link #runInShell(String, String[])}.
+	 * <p>
+	 * This default implementation returns the string unchanged.
+	 * </p>
+	 *
+	 * @param cmd
+	 *            the String to quote
+	 * @return the quoted string
+	 */
+	String shellQuote(String cmd) {
+		return cmd;
+	}
 
 	/**
 	 * Tries to find a hook matching the given one in the given repository.
@@ -1779,12 +1975,71 @@ public abstract class FS {
 	 * @since 4.0
 	 */
 	public File findHook(Repository repository, String hookName) {
-		File gitDir = repository.getDirectory();
-		if (gitDir == null)
+		if (hookName == null) {
 			return null;
-		final File hookFile = new File(new File(gitDir,
-				Constants.HOOKS), hookName);
-		return hookFile.isFile() ? hookFile : null;
+		}
+		File hookDir = getHooksDirectory(repository);
+		if (hookDir == null) {
+			return null;
+		}
+		File hookFile = new File(hookDir, hookName);
+		if (hookFile.isAbsolute()) {
+			if (!hookFile.exists() || (FS.DETECTED.supportsExecute()
+					&& !FS.DETECTED.canExecute(hookFile))) {
+				return null;
+			}
+		} else {
+			try {
+				File runDirectory = getRunDirectory(repository, hookName);
+				if (runDirectory == null) {
+					return null;
+				}
+				Path hookPath = runDirectory.getAbsoluteFile().toPath()
+						.resolve(hookFile.toPath());
+				FS fs = repository.getFS();
+				if (fs == null) {
+					fs = FS.DETECTED;
+				}
+				if (!Files.exists(hookPath) || (fs.supportsExecute()
+						&& !fs.canExecute(hookPath.toFile()))) {
+					return null;
+				}
+				hookFile = hookPath.toFile();
+			} catch (InvalidPathException e) {
+				LOG.warn(MessageFormat.format(JGitText.get().invalidHooksPath,
+						hookFile));
+				return null;
+			}
+		}
+		return hookFile;
+	}
+
+	private File getRunDirectory(Repository repository,
+			@NonNull String hookName) {
+		if (repository.isBare()) {
+			return repository.getDirectory();
+		}
+		switch (hookName) {
+		case "pre-receive": //$NON-NLS-1$
+		case "update": //$NON-NLS-1$
+		case "post-receive": //$NON-NLS-1$
+		case "post-update": //$NON-NLS-1$
+		case "push-to-checkout": //$NON-NLS-1$
+			return repository.getDirectory();
+		default:
+			return repository.getWorkTree();
+		}
+	}
+
+	private File getHooksDirectory(Repository repository) {
+		Config config = repository.getConfig();
+		String hooksDir = config.getString(ConfigConstants.CONFIG_CORE_SECTION,
+				null, ConfigConstants.CONFIG_KEY_HOOKS_PATH);
+		if (hooksDir != null) {
+			return new File(hooksDir);
+		}
+		File dir = repository.getDirectory();
+		return dir == null ? null : new File(dir, Constants.HOOKS);
 	}
 
 	/**
@@ -2218,7 +2473,7 @@ public abstract class FS {
 
 		void copy() throws IOException {
 			boolean writeFailure = false;
-			byte buffer[] = new byte[4096];
+			byte[] buffer = new byte[4096];
 			int readBytes;
 			while ((readBytes = in.read(buffer)) != -1) {
 				// Do not try to write again after a failure, but keep

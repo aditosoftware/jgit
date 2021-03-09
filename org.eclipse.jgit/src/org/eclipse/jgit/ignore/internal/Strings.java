@@ -1,44 +1,11 @@
 /*
- * Copyright (C) 2014, 2017 Andrey Loskutov <loskutov@gmx.de>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2014, 2017 Andrey Loskutov <loskutov@gmx.de> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 package org.eclipse.jgit.ignore.internal;
 
@@ -192,22 +159,20 @@ public class Strings {
 		}
 		if (pattern.indexOf('?') != -1) {
 			return true;
-		} else {
-			// check if the backslash escapes one of the glob special characters
-			// if not, backslash is not part of a regex and treated literally
-			int backSlash = pattern.indexOf('\\');
-			if (backSlash >= 0) {
-				int nextIdx = backSlash + 1;
-				if (pattern.length() == nextIdx) {
-					return false;
-				}
-				char nextChar = pattern.charAt(nextIdx);
-				if (escapedByBackslash(nextChar)) {
-					return true;
-				} else {
-					return false;
-				}
+		}
+		// check if the backslash escapes one of the glob special characters
+		// if not, backslash is not part of a regex and treated literally
+		int backSlash = pattern.indexOf('\\');
+		if (backSlash >= 0) {
+			int nextIdx = backSlash + 1;
+			if (pattern.length() == nextIdx) {
+				return false;
 			}
+			char nextChar = pattern.charAt(nextIdx);
+			if (escapedByBackslash(nextChar)) {
+				return true;
+			}
+			return false;
 		}
 		return false;
 	}
@@ -231,11 +196,11 @@ public class Strings {
 		return PatternState.COMPLEX;
 	}
 
-	static enum PatternState {
+	enum PatternState {
 		LEADING_ASTERISK_ONLY, TRAILING_ASTERISK_ONLY, COMPLEX, NONE
 	}
 
-	final static List<String> POSIX_CHAR_CLASSES = Arrays.asList(
+	static final List<String> POSIX_CHAR_CLASSES = Arrays.asList(
 			"alnum", "alpha", "blank", "cntrl", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
 			// [:alnum:] [:alpha:] [:blank:] [:cntrl:]
 			"digit", "graph", "lower", "print", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
@@ -250,7 +215,7 @@ public class Strings {
 
 	private static final String DL = "\\p{javaDigit}\\p{javaLetter}"; //$NON-NLS-1$
 
-	final static List<String> JAVA_CHAR_CLASSES = Arrays
+	static final List<String> JAVA_CHAR_CLASSES = Arrays
 			.asList("\\p{Alnum}", "\\p{javaLetter}", "\\p{Blank}", "\\p{Cntrl}", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
 					// [:alnum:] [:alpha:] [:blank:] [:cntrl:]
 					"\\p{javaDigit}", "[\\p{Graph}" + DL + "]", "\\p{Ll}", "[\\p{Print}" + DL + "]", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$ //$NON-NLS-6$
@@ -263,7 +228,7 @@ public class Strings {
 
 	// Collating symbols [[.a.]] or equivalence class expressions [[=a=]] are
 	// not supported by CLI git (at least not by 1.9.1)
-	final static Pattern UNSUPPORTED = Pattern
+	static final Pattern UNSUPPORTED = Pattern
 			.compile("\\[\\[[.=]\\w+[.=]\\]\\]"); //$NON-NLS-1$
 
 	/**

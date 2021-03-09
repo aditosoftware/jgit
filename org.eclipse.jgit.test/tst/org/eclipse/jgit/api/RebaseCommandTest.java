@@ -1,44 +1,11 @@
 /*
- * Copyright (C) 2010, 2013 Mathias Kinzler <mathias.kinzler@sap.com>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2010, 2013 Mathias Kinzler <mathias.kinzler@sap.com> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 package org.eclipse.jgit.api;
 
@@ -57,12 +24,9 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Set;
 
 import org.eclipse.jgit.api.MergeResult.MergeStatus;
 import org.eclipse.jgit.api.RebaseCommand.InteractiveHandler;
@@ -78,6 +42,7 @@ import org.eclipse.jgit.errors.AmbiguousObjectException;
 import org.eclipse.jgit.errors.IllegalTodoFileModification;
 import org.eclipse.jgit.errors.IncorrectObjectTypeException;
 import org.eclipse.jgit.errors.MissingObjectException;
+import org.eclipse.jgit.events.ChangeRecorder;
 import org.eclipse.jgit.events.ListenerHandle;
 import org.eclipse.jgit.junit.RepositoryTestCase;
 import org.eclipse.jgit.lib.AbbreviatedObjectId;
@@ -2014,10 +1979,9 @@ public class RebaseCommandTest extends RepositoryTestCase {
 		checkoutBranch("refs/heads/topic");
 		writeTrashFile("sub/file0", "unstaged modified file0");
 
-		Set<String> modifiedFiles = new HashSet<>();
+		ChangeRecorder recorder = new ChangeRecorder();
 		ListenerHandle handle = db.getListenerList()
-				.addWorkingTreeModifiedListener(
-						event -> modifiedFiles.addAll(event.getModified()));
+				.addWorkingTreeModifiedListener(recorder);
 		try {
 			// rebase
 			assertEquals(Status.OK, git.rebase()
@@ -2035,9 +1999,8 @@ public class RebaseCommandTest extends RepositoryTestCase {
 						+ "[sub/file0, mode:100644, content:file0]",
 				indexState(CONTENT));
 		assertEquals(RepositoryState.SAFE, db.getRepositoryState());
-		List<String> modified = new ArrayList<>(modifiedFiles);
-		Collections.sort(modified);
-		assertEquals("[file1, sub/file0]", modified.toString());
+		recorder.assertEvent(new String[] { "file1", "file2", "sub/file0" },
+				new String[0]);
 	}
 
 	@Test
@@ -2136,10 +2099,12 @@ public class RebaseCommandTest extends RepositoryTestCase {
 	private List<DiffEntry> getStashedDiff() throws AmbiguousObjectException,
 			IncorrectObjectTypeException, IOException, MissingObjectException {
 		ObjectId stashId = db.resolve("stash@{0}");
-		RevWalk revWalk = new RevWalk(db);
-		RevCommit stashCommit = revWalk.parseCommit(stashId);
-		List<DiffEntry> diffs = diffWorkingAgainstHead(stashCommit, revWalk);
-		return diffs;
+		try (RevWalk revWalk = new RevWalk(db)) {
+			RevCommit stashCommit = revWalk.parseCommit(stashId);
+			List<DiffEntry> diffs = diffWorkingAgainstHead(stashCommit,
+					revWalk);
+			return diffs;
+		}
 	}
 
 	private TreeWalk createTreeWalk() {

@@ -1,46 +1,13 @@
 /*
  * Copyright (C) 2010, Mathias Kinzler <mathias.kinzler@sap.com>
  * Copyright (C) 2010, Chris Aniszczyk <caniszczyk@gmail.com>
- * Copyright (C) 2012-2013, Robin Rosenberg
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2012, 2020, Robin Rosenberg and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 package org.eclipse.jgit.lib;
 
@@ -126,13 +93,27 @@ public final class ConfigConstants {
 	public static final String CONFIG_GPG_SECTION = "gpg";
 
 	/**
+	 * The "protocol" section
+	 * @since 5.9
+	 */
+	public static final String CONFIG_PROTOCOL_SECTION = "protocol";
+
+	/**
 	 * The "format" key
 	 * @since 5.2
 	 */
 	public static final String CONFIG_KEY_FORMAT = "format";
 
 	/**
+	 * The "program" key
+	 *
+	 * @since 5.11
+	 */
+	public static final String CONFIG_KEY_PROGRAM = "program";
+
+	/**
 	 * The "signingKey" key
+	 *
 	 * @since 5.2
 	 */
 	public static final String CONFIG_KEY_SIGNINGKEY = "signingKey";
@@ -144,10 +125,38 @@ public final class ConfigConstants {
 	public static final String CONFIG_COMMIT_SECTION = "commit";
 
 	/**
+	 * The "tag" section
+	 *
+	 * @since 5.11
+	 */
+	public static final String CONFIG_TAG_SECTION = "tag";
+
+	/**
 	 * The "gpgSign" key
+	 *
 	 * @since 5.2
 	 */
 	public static final String CONFIG_KEY_GPGSIGN = "gpgSign";
+
+	/**
+	 * The "forceSignAnnotated" key
+	 *
+	 * @since 5.11
+	 */
+	public static final String CONFIG_KEY_FORCE_SIGN_ANNOTATED = "forceSignAnnotated";
+
+	/**
+	 * The "hooksPath" key.
+	 *
+	 * @since 5.6
+	 */
+	public static final String CONFIG_KEY_HOOKS_PATH = "hooksPath";
+
+	/**
+	 * The "quotePath" key.
+	 * @since 5.6
+	 */
+	public static final String CONFIG_KEY_QUOTE_PATH = "quotePath";
 
 	/** The "algorithm" key */
 	public static final String CONFIG_KEY_ALGORITHM = "algorithm";
@@ -229,6 +238,36 @@ public final class ConfigConstants {
 
 	/** The "streamFileThreshold" key */
 	public static final String CONFIG_KEY_STREAM_FILE_TRESHOLD = "streamFileThreshold";
+
+	/**
+	 * The "packedGitMmap" key
+	 * @since 5.1.13
+	 */
+	public static final String CONFIG_KEY_PACKED_GIT_MMAP = "packedgitmmap";
+
+	/**
+	 * The "packedGitWindowSize" key
+	 * @since 5.1.13
+	 */
+	public static final String CONFIG_KEY_PACKED_GIT_WINDOWSIZE = "packedgitwindowsize";
+
+	/**
+	 * The "packedGitLimit" key
+	 * @since 5.1.13
+	 */
+	public static final String CONFIG_KEY_PACKED_GIT_LIMIT = "packedgitlimit";
+
+	/**
+	 * The "packedGitOpenFiles" key
+	 * @since 5.1.13
+	 */
+	public static final String CONFIG_KEY_PACKED_GIT_OPENFILES = "packedgitopenfiles";
+
+	/**
+	 * The "packedGitUseStrongRefs" key
+	 * @since 5.1.13
+	 */
+	public static final String CONFIG_KEY_PACKED_GIT_USE_STRONGREFS = "packedgitusestrongrefs";
 
 	/** The "remote" key */
 	public static final String CONFIG_KEY_REMOTE = "remote";
@@ -491,8 +530,202 @@ public final class ConfigConstants {
 
 	/**
 	 * The "minRacyThreshold" key
-	 *
 	 * @since 5.1.9
 	 */
 	public static final String CONFIG_KEY_MIN_RACY_THRESHOLD = "minRacyThreshold";
+
+
+	/**
+	 * The "refStorage" key
+	 *
+	 * @since 5.6.2
+	 */
+	public static final String CONFIG_KEY_REF_STORAGE = "refStorage";
+
+	/**
+	 * The "extensions" section
+	 *
+	 * @since 5.6.2
+	 */
+	public static final String CONFIG_EXTENSIONS_SECTION = "extensions";
+
+	/**
+	 * The extensions.refStorage key
+	 * @since 5.7
+	 */
+	public static final String CONFIG_KEY_REFSTORAGE = "refStorage";
+
+	/**
+	 * The "reftable" refStorage format
+	 * @since 5.7
+	 */
+	public static final String CONFIG_REF_STORAGE_REFTABLE = "reftable";
+
+	/**
+	 * The "jmx" section
+	 * @since 5.1.13
+	 */
+	public static final String CONFIG_JMX_SECTION = "jmx";
+
+	/**
+	 * The "pack.bigfilethreshold" key
+	 * @since 5.8
+	 */
+	public static final String CONFIG_KEY_BIGFILE_THRESHOLD = "bigfilethreshold";
+
+	/**
+	 * The "pack.bitmapContiguousCommitCount" key
+	 * @since 5.8
+	 */
+	public static final String CONFIG_KEY_BITMAP_CONTIGUOUS_COMMIT_COUNT = "bitmapcontiguouscommitcount";
+
+	/**
+	 * The "pack.bitmapDistantCommitSpan" key
+	 * @since 5.8
+	 */
+	public static final String CONFIG_KEY_BITMAP_DISTANT_COMMIT_SPAN = "bitmapdistantcommitspan";
+
+	/**
+	 * The "pack.bitmapExcessiveBranchCount" key
+	 * @since 5.8
+	 */
+	public static final String CONFIG_KEY_BITMAP_EXCESSIVE_BRANCH_COUNT = "bitmapexcessivebranchcount";
+
+	/**
+	 * The "pack.bitmapInactiveBranchAgeInDays" key
+	 * @since 5.8
+	 */
+	public static final String CONFIG_KEY_BITMAP_INACTIVE_BRANCH_AGE_INDAYS = "bitmapinactivebranchageindays";
+
+	/**
+	 * The "pack.bitmapRecentCommitSpan" key
+	 * @since 5.8
+	 */
+	public static final String CONFIG_KEY_BITMAP_RECENT_COMMIT_COUNT = "bitmaprecentcommitspan";
+
+	/**
+	 * The "pack.buildBitmaps" key
+	 * @since 5.8
+	 */
+	public static final String CONFIG_KEY_BUILD_BITMAPS = "buildbitmaps";
+
+	/**
+	 * The "pack.cutDeltaChains" key
+	 * @since 5.8
+	 */
+	public static final String CONFIG_KEY_CUT_DELTACHAINS = "cutdeltachains";
+
+	/**
+	 * The "pack.deltaCacheLimit" key
+	 * @since 5.8
+	 */
+	public static final String CONFIG_KEY_DELTA_CACHE_LIMIT = "deltacachelimit";
+
+	/**
+	 * The "pack.deltaCacheSize" key
+	 * @since 5.8
+	 */
+	public static final String CONFIG_KEY_DELTA_CACHE_SIZE = "deltacachesize";
+
+	/**
+	 * The "pack.deltaCompression" key
+	 * @since 5.8
+	 */
+	public static final String CONFIG_KEY_DELTA_COMPRESSION = "deltacompression";
+
+	/**
+	 * The "pack.depth" key
+	 * @since 5.8
+	 */
+	public static final String CONFIG_KEY_DEPTH = "depth";
+
+	/**
+	 * The "pack.minSizePreventRacyPack" key
+	 * @since 5.8
+	 */
+	public static final String CONFIG_KEY_MIN_SIZE_PREVENT_RACYPACK = "minsizepreventracypack";
+
+	/**
+	 * The "pack.reuseDeltas" key
+	 * @since 5.8
+	 */
+	public static final String CONFIG_KEY_REUSE_DELTAS = "reusedeltas";
+
+	/**
+	 * The "pack.reuseObjects" key
+	 * @since 5.8
+	 */
+	public static final String CONFIG_KEY_REUSE_OBJECTS = "reuseobjects";
+
+	/**
+	 * The "pack.singlePack" key
+	 * @since 5.8
+	 */
+	public static final String CONFIG_KEY_SINGLE_PACK = "singlepack";
+
+	/**
+	 * The "pack.threads" key
+	 * @since 5.8
+	 */
+	public static final String CONFIG_KEY_THREADS = "threads";
+
+	/**
+	 * The "pack.waitPreventRacyPack" key
+	 * @since 5.8
+	 */
+	public static final String CONFIG_KEY_WAIT_PREVENT_RACYPACK = "waitpreventracypack";
+
+	/**
+	 * The "pack.window" key
+	 * @since 5.8
+	 */
+	public static final String CONFIG_KEY_WINDOW = "window";
+
+	/**
+	 * The "pack.windowMemory" key
+	 * @since 5.8
+	 */
+	public static final String CONFIG_KEY_WINDOW_MEMORY = "windowmemory";
+
+	/**
+	 * The "feature" section
+	 *
+	 * @since 5.9
+	 */
+	public static final String CONFIG_FEATURE_SECTION = "feature";
+
+	/**
+	 * The "feature.manyFiles" key
+	 *
+	 * @since 5.9
+	 */
+	public static final String CONFIG_KEY_MANYFILES = "manyFiles";
+
+	/**
+	 * The "index" section
+	 *
+	 * @since 5.9
+	 */
+	public static final String CONFIG_INDEX_SECTION = "index";
+
+	/**
+	 * The "version" key
+	 *
+	 * @since 5.9
+	 */
+	public static final String CONFIG_KEY_VERSION = "version";
+
+	/**
+	 * The "init" section
+	 *
+	 * @since 5.11
+	 */
+	public static final String CONFIG_INIT_SECTION = "init";
+
+	/**
+	 * The "defaultBranch" key
+	 *
+	 * @since 5.11
+	 */
+	public static final String CONFIG_KEY_DEFAULT_BRANCH = "defaultbranch";
 }

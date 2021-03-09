@@ -1,46 +1,13 @@
 /*
  * Copyright (C) 2007, Dave Watson <dwatson@mimvista.com>
- * Copyright (C) 2006-2007, Robin Rosenberg <robin.rosenberg@dewire.com>
- * Copyright (C) 2006-2007, Shawn O. Pearce <spearce@spearce.org>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2006, 2007, Robin Rosenberg <robin.rosenberg@dewire.com>
+ * Copyright (C) 2006, 2020, Shawn O. Pearce <spearce@spearce.org> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.lib;
@@ -49,14 +16,11 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.UnsupportedEncodingException;
 import java.nio.charset.Charset;
-import java.text.MessageFormat;
 import java.util.List;
 
-import org.eclipse.jgit.internal.JGitText;
 import org.eclipse.jgit.util.References;
 
 /**
@@ -70,7 +34,7 @@ import org.eclipse.jgit.util.References;
  * and obtain a {@link org.eclipse.jgit.revwalk.RevCommit} instance by calling
  * {@link org.eclipse.jgit.revwalk.RevWalk#parseCommit(AnyObjectId)}.
  */
-public class CommitBuilder {
+public class CommitBuilder extends ObjectBuilder {
 	private static final ObjectId[] EMPTY_OBJECTID_LIST = new ObjectId[0];
 
 	private static final byte[] htree = Constants.encodeASCII("tree"); //$NON-NLS-1$
@@ -83,28 +47,17 @@ public class CommitBuilder {
 
 	private static final byte[] hgpgsig = Constants.encodeASCII("gpgsig"); //$NON-NLS-1$
 
-	private static final byte[] hencoding = Constants.encodeASCII("encoding"); //$NON-NLS-1$
-
 	private ObjectId treeId;
 
 	private ObjectId[] parentIds;
 
-	private PersonIdent author;
-
 	private PersonIdent committer;
-
-	private GpgSignature gpgSignature;
-
-	private String message;
-
-	private Charset encoding;
 
 	/**
 	 * Initialize an empty commit.
 	 */
 	public CommitBuilder() {
 		parentIds = EMPTY_OBJECTID_LIST;
-		encoding = UTF_8;
 	}
 
 	/**
@@ -131,8 +84,9 @@ public class CommitBuilder {
 	 *
 	 * @return the author of this commit (who wrote it).
 	 */
+	@Override
 	public PersonIdent getAuthor() {
-		return author;
+		return super.getAuthor();
 	}
 
 	/**
@@ -141,8 +95,9 @@ public class CommitBuilder {
 	 * @param newAuthor
 	 *            the new author. Should not be null.
 	 */
+	@Override
 	public void setAuthor(PersonIdent newAuthor) {
-		author = newAuthor;
+		super.setAuthor(newAuthor);
 	}
 
 	/**
@@ -162,38 +117,6 @@ public class CommitBuilder {
 	 */
 	public void setCommitter(PersonIdent newCommitter) {
 		committer = newCommitter;
-	}
-
-	/**
-	 * Set the GPG signature of this commit.
-	 * <p>
-	 * Note, the signature set here will change the payload of the commit, i.e.
-	 * the output of {@link #build()} will include the signature. Thus, the
-	 * typical flow will be:
-	 * <ol>
-	 * <li>call {@link #build()} without a signature set to obtain payload</li>
-	 * <li>create {@link GpgSignature} from payload</li>
-	 * <li>set {@link GpgSignature}</li>
-	 * </ol>
-	 * </p>
-	 *
-	 * @param newSignature
-	 *            the signature to set or <code>null</code> to unset
-	 * @since 5.3
-	 */
-	public void setGpgSignature(GpgSignature newSignature) {
-		gpgSignature = newSignature;
-	}
-
-	/**
-	 * Get the GPG signature of this commit.
-	 *
-	 * @return the GPG signature of this commit, maybe <code>null</code> if the
-	 *         commit is not to be signed
-	 * @since 5.3
-	 */
-	public GpgSignature getGpgSignature() {
-		return gpgSignature;
 	}
 
 	/**
@@ -272,25 +195,6 @@ public class CommitBuilder {
 	}
 
 	/**
-	 * Get the complete commit message.
-	 *
-	 * @return the complete commit message.
-	 */
-	public String getMessage() {
-		return message;
-	}
-
-	/**
-	 * Set the commit message.
-	 *
-	 * @param newMessage
-	 *            the commit message. Should not be null.
-	 */
-	public void setMessage(String newMessage) {
-		message = newMessage;
-	}
-
-	/**
 	 * Set the encoding for the commit information.
 	 *
 	 * @param encodingName
@@ -300,37 +204,10 @@ public class CommitBuilder {
 	 */
 	@Deprecated
 	public void setEncoding(String encodingName) {
-		encoding = Charset.forName(encodingName);
+		setEncoding(Charset.forName(encodingName));
 	}
 
-	/**
-	 * Set the encoding for the commit information.
-	 *
-	 * @param enc
-	 *            the encoding to use.
-	 */
-	public void setEncoding(Charset enc) {
-		encoding = enc;
-	}
-
-	/**
-	 * Get the encoding that should be used for the commit message text.
-	 *
-	 * @return the encoding that should be used for the commit message text.
-	 */
-	public Charset getEncoding() {
-		return encoding;
-	}
-
-	/**
-	 * Format this builder's state as a commit object.
-	 *
-	 * @return this object in the canonical commit format, suitable for storage
-	 *         in a repository.
-	 * @throws java.io.UnsupportedEncodingException
-	 *             the encoding specified by {@link #getEncoding()} is not
-	 *             supported by this Java runtime.
-	 */
+	@Override
 	public byte[] build() throws UnsupportedEncodingException {
 		ByteArrayOutputStream os = new ByteArrayOutputStream();
 		OutputStreamWriter w = new OutputStreamWriter(os, getEncoding());
@@ -359,19 +236,16 @@ public class CommitBuilder {
 			w.flush();
 			os.write('\n');
 
-			if (getGpgSignature() != null) {
+			GpgSignature signature = getGpgSignature();
+			if (signature != null) {
 				os.write(hgpgsig);
 				os.write(' ');
-				writeGpgSignatureString(getGpgSignature().toExternalString(), os);
+				writeMultiLineHeader(signature.toExternalString(), os,
+						true);
 				os.write('\n');
 			}
 
-			if (!References.isSameObject(getEncoding(), UTF_8)) {
-				os.write(hencoding);
-				os.write(' ');
-				os.write(Constants.encodeASCII(getEncoding().name()));
-				os.write('\n');
-			}
+			writeEncoding(getEncoding(), os);
 
 			os.write('\n');
 
@@ -386,50 +260,6 @@ public class CommitBuilder {
 			throw new RuntimeException(err);
 		}
 		return os.toByteArray();
-	}
-
-	/**
-	 * Writes signature to output as per <a href=
-	 * "https://github.com/git/git/blob/master/Documentation/technical/signature-format.txt#L66,L89">gpgsig
-	 * header</a>.
-	 * <p>
-	 * CRLF and CR will be sanitized to LF and signature will have a hanging
-	 * indent of one space starting with line two.
-	 * </p>
-	 *
-	 * @param in
-	 *            signature string with line breaks
-	 * @param out
-	 *            output stream
-	 * @throws IOException
-	 *             thrown by the output stream
-	 * @throws IllegalArgumentException
-	 *             if the signature string contains non 7-bit ASCII chars
-	 */
-	static void writeGpgSignatureString(String in, OutputStream out)
-			throws IOException, IllegalArgumentException {
-		for (int i = 0; i < in.length(); ++i) {
-			char ch = in.charAt(i);
-			if (ch == '\r') {
-				if (i + 1 < in.length() && in.charAt(i + 1) == '\n') {
-					out.write('\n');
-					out.write(' ');
-					++i;
-				} else {
-					out.write('\n');
-					out.write(' ');
-				}
-			} else if (ch == '\n') {
-				out.write('\n');
-				out.write(' ');
-			} else {
-				// sanity check
-				if (ch > 127)
-					throw new IllegalArgumentException(MessageFormat
-							.format(JGitText.get().notASCIIString, in));
-				out.write(ch);
-			}
-		}
 	}
 
 	/**
@@ -464,7 +294,7 @@ public class CommitBuilder {
 		}
 
 		r.append("author ");
-		r.append(author != null ? author.toString() : "NOT_SET");
+		r.append(getAuthor() != null ? getAuthor().toString() : "NOT_SET");
 		r.append("\n");
 
 		r.append("committer ");
@@ -472,17 +302,20 @@ public class CommitBuilder {
 		r.append("\n");
 
 		r.append("gpgSignature ");
-		r.append(gpgSignature != null ? gpgSignature.toString() : "NOT_SET");
+		GpgSignature signature = getGpgSignature();
+		r.append(signature != null ? signature.toString()
+				: "NOT_SET");
 		r.append("\n");
 
-		if (encoding != null && !References.isSameObject(encoding, UTF_8)) {
+		Charset encoding = getEncoding();
+		if (!References.isSameObject(encoding, UTF_8)) {
 			r.append("encoding ");
 			r.append(encoding.name());
 			r.append("\n");
 		}
 
 		r.append("\n");
-		r.append(message != null ? message : "");
+		r.append(getMessage() != null ? getMessage() : "");
 		r.append("}");
 		return r.toString();
 	}

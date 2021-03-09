@@ -1,47 +1,14 @@
 /*
- * Copyright (C) 2008-2009, Google Inc.
+ * Copyright (C) 2008, 2009 Google Inc.
  * Copyright (C) 2008, Marek Zawirski <marek.zawirski@gmail.com>
  * Copyright (C) 2008, Robin Rosenberg <robin.rosenberg@dewire.com>
- * Copyright (C) 2008, Shawn O. Pearce <spearce@spearce.org>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2008, 2020 Shawn O. Pearce <spearce@spearce.org> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.transport;
@@ -72,6 +39,7 @@ import java.util.Vector;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.eclipse.jgit.annotations.NonNull;
+import org.eclipse.jgit.annotations.Nullable;
 import org.eclipse.jgit.api.errors.AbortedByHookException;
 import org.eclipse.jgit.errors.NotSupportedException;
 import org.eclipse.jgit.errors.TransportException;
@@ -302,11 +270,12 @@ public abstract class Transport implements AutoCloseable {
 			URISyntaxException, TransportException {
 		if (local != null) {
 			final RemoteConfig cfg = new RemoteConfig(local.getConfig(), remote);
-			if (doesNotExist(cfg))
+			if (doesNotExist(cfg)) {
 				return open(local, new URIish(remote), null);
+			}
 			return open(local, cfg, op);
-		} else
-			return open(new URIish(remote));
+		}
+		return open(new URIish(remote));
 
 	}
 
@@ -708,11 +677,11 @@ public abstract class Transport implements AutoCloseable {
 		// try to find matching tracking refs
 		for (RefSpec fetchSpec : fetchSpecs) {
 			if (fetchSpec.matchSource(remoteName)) {
-				if (fetchSpec.isWildcard())
+				if (fetchSpec.isWildcard()) {
 					return fetchSpec.expandFromSource(remoteName)
 							.getDestination();
-				else
-					return fetchSpec.getDestination();
+				}
+				return fetchSpec.getDestination();
 			}
 		}
 		return null;
@@ -806,6 +775,10 @@ public abstract class Transport implements AutoCloseable {
 	private PrintStream hookOutRedirect;
 
 	private PrePushHook prePush;
+
+	@Nullable
+	TransferConfig.ProtocolVersion protocol;
+
 	/**
 	 * Create a new transport instance.
 	 *
@@ -821,6 +794,7 @@ public abstract class Transport implements AutoCloseable {
 		final TransferConfig tc = local.getConfig().get(TransferConfig.KEY);
 		this.local = local;
 		this.uri = uri;
+		this.protocol = tc.protocolVersion;
 		this.objectChecker = tc.newObjectChecker();
 		this.credentialsProvider = CredentialsProvider.getDefault();
 		prePush = Hooks.prePush(local, hookOutRedirect);
@@ -1257,9 +1231,52 @@ public abstract class Transport implements AutoCloseable {
 	 *             the remote connection could not be established or object
 	 *             copying (if necessary) failed or update specification was
 	 *             incorrect.
+	 * @since 5.11
 	 */
 	public FetchResult fetch(final ProgressMonitor monitor,
-			Collection<RefSpec> toFetch) throws NotSupportedException,
+			Collection<RefSpec> toFetch)
+			throws NotSupportedException, TransportException {
+		return fetch(monitor, toFetch, null);
+	}
+
+	/**
+	 * Fetch objects and refs from the remote repository to the local one.
+	 * <p>
+	 * This is a utility function providing standard fetch behavior. Local
+	 * tracking refs associated with the remote repository are automatically
+	 * updated if this transport was created from a
+	 * {@link org.eclipse.jgit.transport.RemoteConfig} with fetch RefSpecs
+	 * defined.
+	 *
+	 * @param monitor
+	 *            progress monitor to inform the user about our processing
+	 *            activity. Must not be null. Use
+	 *            {@link org.eclipse.jgit.lib.NullProgressMonitor} if progress
+	 *            updates are not interesting or necessary.
+	 * @param toFetch
+	 *            specification of refs to fetch locally. May be null or the
+	 *            empty collection to use the specifications from the
+	 *            RemoteConfig. Source for each RefSpec can't be null.
+	 * @param branch
+	 *            the initial branch to check out when cloning the repository.
+	 *            Can be specified as ref name (<code>refs/heads/master</code>),
+	 *            branch name (<code>master</code>) or tag name
+	 *            (<code>v1.2.3</code>). The default is to use the branch
+	 *            pointed to by the cloned repository's HEAD and can be
+	 *            requested by passing {@code null} or <code>HEAD</code>.
+	 * @return information describing the tracking refs updated.
+	 * @throws org.eclipse.jgit.errors.NotSupportedException
+	 *             this transport implementation does not support fetching
+	 *             objects.
+	 * @throws org.eclipse.jgit.errors.TransportException
+	 *             the remote connection could not be established or object
+	 *             copying (if necessary) failed or update specification was
+	 *             incorrect.
+	 * @since 5.11
+	 */
+	public FetchResult fetch(final ProgressMonitor monitor,
+			Collection<RefSpec> toFetch, String branch)
+			throws NotSupportedException,
 			TransportException {
 		if (toFetch == null || toFetch.isEmpty()) {
 			// If the caller did not ask for anything use the defaults.
@@ -1289,7 +1306,7 @@ public abstract class Transport implements AutoCloseable {
 		}
 
 		final FetchResult result = new FetchResult();
-		new FetchProcess(this, toFetch).execute(monitor, result);
+		new FetchProcess(this, toFetch).execute(monitor, result, branch);
 
 		local.autoGC(monitor);
 
@@ -1483,6 +1500,43 @@ public abstract class Transport implements AutoCloseable {
 	 */
 	public abstract FetchConnection openFetch() throws NotSupportedException,
 			TransportException;
+
+	/**
+	 * Begins a new connection for fetching from the remote repository.
+	 * <p>
+	 * If the transport has no local repository, the fetch connection can only
+	 * be used for reading remote refs.
+	 * </p>
+	 * <p>
+	 * If the server supports git protocol V2, the {@link RefSpec}s and the
+	 * additional patterns, if any, are used to restrict the server's ref
+	 * advertisement to matching refs only.
+	 * </p>
+	 * <p>
+	 * Transports that want to support git protocol V2 <em>must</em> override
+	 * this; the default implementation ignores its arguments and calls
+	 * {@link #openFetch()}.
+	 * </p>
+	 *
+	 * @param refSpecs
+	 *            that will be fetched via
+	 *            {@link FetchConnection#fetch(ProgressMonitor, Collection, java.util.Set, OutputStream)} later
+	 * @param additionalPatterns
+	 *            that will be set as ref prefixes if the server supports git
+	 *            protocol V2; {@code null} values are ignored
+	 *
+	 * @return a fresh connection to fetch from the remote repository.
+	 * @throws org.eclipse.jgit.errors.NotSupportedException
+	 *             the implementation does not support fetching.
+	 * @throws org.eclipse.jgit.errors.TransportException
+	 *             the remote connection could not be established.
+	 * @since 5.11
+	 */
+	public FetchConnection openFetch(Collection<RefSpec> refSpecs,
+			String... additionalPatterns)
+			throws NotSupportedException, TransportException {
+		return openFetch();
+	}
 
 	/**
 	 * Begins a new connection for pushing into the remote repository.

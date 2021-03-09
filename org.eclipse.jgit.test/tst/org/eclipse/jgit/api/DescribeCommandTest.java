@@ -1,44 +1,11 @@
 /*
- * Copyright (C) 2013, CloudBees, Inc.
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2013, CloudBees, Inc. and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 package org.eclipse.jgit.api;
 
@@ -343,7 +310,7 @@ public class DescribeCommandTest extends RepositoryTestCase {
 			assertEquals(
 					"2 commits for describe commit increment expected since lightweight tag: c4 and c3",
 					"t2-2-g119892b", describe(c4)); // 2 commits: c4 and c3
-		} else if (!useAnnotatedTags && !describeUseAllTags) {
+		} else if (!useAnnotatedTags) {
 			assertEquals("no matching commits expected", null, describe(c4));
 		} else {
 			assertEquals(
@@ -438,6 +405,46 @@ public class DescribeCommandTest extends RepositoryTestCase {
 		}
 	}
 
+	@Test
+	public void testDescribeUseAllRefsMaster() throws Exception {
+		final ObjectId c1 = modify("aaa");
+		tag("t1");
+
+		if (useAnnotatedTags || describeUseAllTags) {
+			assertEquals("t1", describe(c1));
+		} else {
+			assertEquals(null, describe(c1));
+		}
+		assertEquals("heads/master", describeAll(c1));
+	}
+
+	/**
+	 * Branch off from master and then tag
+	 *
+	 * <pre>
+	 * c1 -+ -> c2
+	 *     |
+	 *     +-> t1
+	 * </pre>
+	 * @throws Exception
+	 * */
+	@Test
+	public void testDescribeUseAllRefsBranch() throws Exception {
+		final ObjectId c1 = modify("aaa");
+		modify("bbb");
+
+		branch("b", c1);
+		final ObjectId c3 = modify("ccc");
+		tag("t1");
+
+		if (!useAnnotatedTags && !describeUseAllTags) {
+			assertEquals(null, describe(c3));
+		} else {
+			assertEquals("t1", describe(c3));
+		}
+		assertEquals("heads/b", describeAll(c3));
+	}
+
 	private ObjectId merge(ObjectId c2) throws GitAPIException {
 		return git.merge().include(c2).call().getNewHead();
 	}
@@ -475,6 +482,11 @@ public class DescribeCommandTest extends RepositoryTestCase {
 
 	private String describe(ObjectId c1) throws GitAPIException, IOException {
 		return describe(c1, false, false);
+	}
+
+	private String describeAll(ObjectId c1) throws GitAPIException, IOException {
+		return git.describe().setTarget(c1).setTags(describeUseAllTags)
+				.setLong(false).setAlways(false).setAll(true).call();
 	}
 
 	private String describe(ObjectId c1, String... patterns) throws Exception {

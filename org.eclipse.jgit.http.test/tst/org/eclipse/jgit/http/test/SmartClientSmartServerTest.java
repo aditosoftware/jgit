@@ -1,44 +1,11 @@
 /*
- * Copyright (C) 2010, 2017 Google Inc.
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2010, 2020 Google Inc. and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.http.test;
@@ -51,13 +18,21 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
+import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
+import java.io.Writer;
+import java.net.Proxy;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.text.MessageFormat;
 import java.util.Collections;
 import java.util.EnumSet;
@@ -80,6 +55,8 @@ import javax.servlet.http.HttpServletResponse;
 import org.eclipse.jetty.servlet.FilterHolder;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
+import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.api.TransportConfigCallback;
 import org.eclipse.jgit.errors.RemoteRepositoryException;
 import org.eclipse.jgit.errors.TransportException;
 import org.eclipse.jgit.errors.UnsupportedCredentialItem;
@@ -102,6 +79,7 @@ import org.eclipse.jgit.lib.ReflogEntry;
 import org.eclipse.jgit.lib.ReflogReader;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.lib.StoredConfig;
+import org.eclipse.jgit.lib.TextProgressMonitor;
 import org.eclipse.jgit.revwalk.RevBlob;
 import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.revwalk.RevWalk;
@@ -118,20 +96,15 @@ import org.eclipse.jgit.transport.TransportHttp;
 import org.eclipse.jgit.transport.URIish;
 import org.eclipse.jgit.transport.UploadPack;
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
+import org.eclipse.jgit.transport.http.HttpConnection;
 import org.eclipse.jgit.transport.http.HttpConnectionFactory;
 import org.eclipse.jgit.util.HttpSupport;
 import org.eclipse.jgit.util.SystemReader;
-import org.hamcrest.Matchers;
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.ExpectedException;
 
-public class SmartClientSmartServerTest extends AllFactoriesHttpTestCase {
+public class SmartClientSmartServerTest extends AllProtocolsHttpTestCase {
 	private static final String HDR_TRANSFER_ENCODING = "Transfer-Encoding";
-
-	@Rule
-	public ExpectedException thrown = ExpectedException.none();
 
 	private AdvertiseRefsHook advertiseRefsHook;
 
@@ -150,12 +123,16 @@ public class SmartClientSmartServerTest extends AllFactoriesHttpTestCase {
 
 	private URIish authOnPostURI;
 
+	private URIish slowURI;
+
+	private URIish slowAuthURI;
+
 	private RevBlob A_txt;
 
 	private RevCommit A, B, unreachableCommit;
 
-	public SmartClientSmartServerTest(HttpConnectionFactory cf) {
-		super(cf);
+	public SmartClientSmartServerTest(TestParameters params) {
+		super(params);
 	}
 
 	@Override
@@ -165,10 +142,11 @@ public class SmartClientSmartServerTest extends AllFactoriesHttpTestCase {
 
 		final TestRepository<Repository> src = createTestRepository();
 		final String srcName = src.getRepository().getDirectory().getName();
-		src.getRepository()
-				.getConfig()
-				.setBoolean(ConfigConstants.CONFIG_CORE_SECTION, null,
-						ConfigConstants.CONFIG_KEY_LOGALLREFUPDATES, true);
+		StoredConfig cfg = src.getRepository().getConfig();
+		cfg.setBoolean(ConfigConstants.CONFIG_CORE_SECTION, null,
+				ConfigConstants.CONFIG_KEY_LOGALLREFUPDATES, true);
+		cfg.setInt("protocol", null, "version", enableProtocolV2 ? 2 : 0);
+		cfg.save();
 
 		GitServlet gs = new GitServlet();
 		gs.setUploadPackFactory((HttpServletRequest req, Repository db) -> {
@@ -190,6 +168,10 @@ public class SmartClientSmartServerTest extends AllFactoriesHttpTestCase {
 
 		ServletContextHandler authOnPost = addAuthContext(gs, "pauth", "POST");
 
+		ServletContextHandler slow = addSlowContext(gs, "slow", false);
+
+		ServletContextHandler slowAuth = addSlowContext(gs, "slowAuth", true);
+
 		server.setUp();
 
 		remoteRepository = src.getRepository();
@@ -198,6 +180,8 @@ public class SmartClientSmartServerTest extends AllFactoriesHttpTestCase {
 		redirectURI = toURIish(redirect, srcName);
 		authURI = toURIish(auth, srcName);
 		authOnPostURI = toURIish(authOnPost, srcName);
+		slowURI = toURIish(slow, srcName);
+		slowAuthURI = toURIish(slowAuth, srcName);
 
 		A_txt = src.blob("A");
 		A = src.commit().add("A_txt", A_txt).create();
@@ -331,9 +315,8 @@ public class SmartClientSmartServerTest extends AllFactoriesHttpTestCase {
 					String fragment = u.getRawFragment();
 					if (fragment != null) {
 						return u.getRawPath() + '#' + fragment;
-					} else {
-						return u.getRawPath();
 					}
+					return u.getRawPath();
 				} catch (URISyntaxException e) {
 					return url;
 				}
@@ -411,6 +394,43 @@ public class SmartClientSmartServerTest extends AllFactoriesHttpTestCase {
 		return redirect;
 	}
 
+	private ServletContextHandler addSlowContext(GitServlet gs, String path,
+			boolean auth) {
+		ServletContextHandler slow = server.addContext('/' + path);
+		slow.addFilter(new FilterHolder(new Filter() {
+
+			@Override
+			public void init(FilterConfig filterConfig)
+					throws ServletException {
+				// empty
+			}
+
+			// Simply delays the servlet for two seconds. Used for timeout
+			// tests, which use a one-second timeout.
+			@Override
+			public void doFilter(ServletRequest request,
+					ServletResponse response, FilterChain chain)
+					throws IOException, ServletException {
+				try {
+					Thread.sleep(2000);
+				} catch (InterruptedException e) {
+					throw new IOException(e);
+				}
+				chain.doFilter(request, response);
+			}
+
+			@Override
+			public void destroy() {
+				// empty
+			}
+		}), "/*", EnumSet.of(DispatcherType.REQUEST));
+		slow.addServlet(new ServletHolder(gs), "/*");
+		if (auth) {
+			return server.authBasic(slow);
+		}
+		return slow;
+	}
+
 	@Test
 	public void testListRemote() throws IOException {
 		assertEquals("http", remoteURI.getScheme());
@@ -440,7 +460,7 @@ public class SmartClientSmartServerTest extends AllFactoriesHttpTestCase {
 		assertEquals(B, map.get(Constants.HEAD).getObjectId());
 
 		List<AccessEvent> requests = getRequests();
-		assertEquals(1, requests.size());
+		assertEquals(enableProtocolV2 ? 2 : 1, requests.size());
 
 		AccessEvent info = requests.get(0);
 		assertEquals("GET", info.getMethod());
@@ -450,7 +470,22 @@ public class SmartClientSmartServerTest extends AllFactoriesHttpTestCase {
 		assertEquals(200, info.getStatus());
 		assertEquals("application/x-git-upload-pack-advertisement", info
 				.getResponseHeader(HDR_CONTENT_TYPE));
-		assertEquals("gzip", info.getResponseHeader(HDR_CONTENT_ENCODING));
+		if (!enableProtocolV2) {
+			assertEquals("gzip", info.getResponseHeader(HDR_CONTENT_ENCODING));
+		} else {
+			AccessEvent lsRefs = requests.get(1);
+			assertEquals("POST", lsRefs.getMethod());
+			assertEquals(join(remoteURI, "git-upload-pack"), lsRefs.getPath());
+			assertEquals(0, lsRefs.getParameters().size());
+			assertNotNull("has content-length",
+					lsRefs.getRequestHeader(HDR_CONTENT_LENGTH));
+			assertNull("not chunked",
+					lsRefs.getRequestHeader(HDR_TRANSFER_ENCODING));
+			assertEquals("version=2", lsRefs.getRequestHeader("Git-Protocol"));
+			assertEquals(200, lsRefs.getStatus());
+			assertEquals("application/x-git-upload-pack-result",
+					lsRefs.getResponseHeader(HDR_CONTENT_TYPE));
+		}
 	}
 
 	@Test
@@ -496,11 +531,12 @@ public class SmartClientSmartServerTest extends AllFactoriesHttpTestCase {
 		try (Repository dst = createBareRepository();
 				Transport t = Transport.open(dst, remoteURI)) {
 			assertFalse(dst.getObjectDatabase().has(A_txt));
-			thrown.expect(TransportException.class);
-			thrown.expectMessage(Matchers.containsString(
+			Exception e = assertThrows(TransportException.class,
+					() -> t.fetch(NullProgressMonitor.INSTANCE,
+							Collections.singletonList(
+									new RefSpec(unreachableCommit.name()))));
+			assertTrue(e.getMessage().contains(
 					"want " + unreachableCommit.name() + " not valid"));
-			t.fetch(NullProgressMonitor.INSTANCE, Collections
-					.singletonList(new RefSpec(unreachableCommit.name())));
 		}
 	}
 
@@ -518,11 +554,40 @@ public class SmartClientSmartServerTest extends AllFactoriesHttpTestCase {
 		try (Repository dst = createBareRepository();
 				Transport t = Transport.open(dst, remoteURI)) {
 			assertFalse(dst.getObjectDatabase().has(A_txt));
-			thrown.expect(TransportException.class);
-			thrown.expectMessage(Matchers.containsString(
-					"want " + A.name() + " not valid"));
-			t.fetch(NullProgressMonitor.INSTANCE, Collections
-					.singletonList(new RefSpec(A.name())));
+			Exception e = assertThrows(TransportException.class,
+					() -> t.fetch(NullProgressMonitor.INSTANCE,
+							Collections.singletonList(new RefSpec(A.name()))));
+			assertTrue(
+					e.getMessage().contains("want " + A.name() + " not valid"));
+		}
+	}
+
+	@Test
+	public void testTimeoutExpired() throws Exception {
+		try (Repository dst = createBareRepository();
+				Transport t = Transport.open(dst, slowURI)) {
+			t.setTimeout(1);
+			TransportException expected = assertThrows(TransportException.class,
+					() -> t.fetch(NullProgressMonitor.INSTANCE,
+							mirror(master)));
+			assertTrue("Unexpected exception message: " + expected.toString(),
+					expected.getMessage().contains("time"));
+		}
+	}
+
+	@Test
+	public void testTimeoutExpiredWithAuth() throws Exception {
+		try (Repository dst = createBareRepository();
+				Transport t = Transport.open(dst, slowAuthURI)) {
+			t.setTimeout(1);
+			t.setCredentialsProvider(testCredentials);
+			TransportException expected = assertThrows(TransportException.class,
+					() -> t.fetch(NullProgressMonitor.INSTANCE,
+							mirror(master)));
+			assertTrue("Unexpected exception message: " + expected.toString(),
+					expected.getMessage().contains("time"));
+			assertFalse("Unexpected exception message: " + expected.toString(),
+					expected.getMessage().contains("auth"));
 		}
 	}
 
@@ -538,9 +603,10 @@ public class SmartClientSmartServerTest extends AllFactoriesHttpTestCase {
 		}
 
 		List<AccessEvent> requests = getRequests();
-		assertEquals(2, requests.size());
+		assertEquals(enableProtocolV2 ? 3 : 2, requests.size());
 
-		AccessEvent info = requests.get(0);
+		int requestNumber = 0;
+		AccessEvent info = requests.get(requestNumber++);
 		assertEquals("GET", info.getMethod());
 		assertEquals(join(remoteURI, "info/refs"), info.getPath());
 		assertEquals(1, info.getParameters().size());
@@ -548,9 +614,24 @@ public class SmartClientSmartServerTest extends AllFactoriesHttpTestCase {
 		assertEquals(200, info.getStatus());
 		assertEquals("application/x-git-upload-pack-advertisement", info
 				.getResponseHeader(HDR_CONTENT_TYPE));
-		assertEquals("gzip", info.getResponseHeader(HDR_CONTENT_ENCODING));
+		if (!enableProtocolV2) {
+			assertEquals("gzip", info.getResponseHeader(HDR_CONTENT_ENCODING));
+		} else {
+			AccessEvent lsRefs = requests.get(requestNumber++);
+			assertEquals("POST", lsRefs.getMethod());
+			assertEquals(join(remoteURI, "git-upload-pack"), lsRefs.getPath());
+			assertEquals(0, lsRefs.getParameters().size());
+			assertNotNull("has content-length",
+					lsRefs.getRequestHeader(HDR_CONTENT_LENGTH));
+			assertNull("not chunked",
+					lsRefs.getRequestHeader(HDR_TRANSFER_ENCODING));
+			assertEquals("version=2", lsRefs.getRequestHeader("Git-Protocol"));
+			assertEquals(200, lsRefs.getStatus());
+			assertEquals("application/x-git-upload-pack-result",
+					lsRefs.getResponseHeader(HDR_CONTENT_TYPE));
+		}
 
-		AccessEvent service = requests.get(1);
+		AccessEvent service = requests.get(requestNumber);
 		assertEquals("POST", service.getMethod());
 		assertEquals(join(remoteURI, "git-upload-pack"), service.getPath());
 		assertEquals(0, service.getParameters().size());
@@ -562,6 +643,63 @@ public class SmartClientSmartServerTest extends AllFactoriesHttpTestCase {
 		assertEquals(200, service.getStatus());
 		assertEquals("application/x-git-upload-pack-result", service
 				.getResponseHeader(HDR_CONTENT_TYPE));
+	}
+
+	@Test
+	public void test_CloneWithCustomFactory() throws Exception {
+		HttpConnectionFactory globalFactory = HttpTransport
+				.getConnectionFactory();
+		HttpConnectionFactory failingConnectionFactory = new HttpConnectionFactory() {
+
+			@Override
+			public HttpConnection create(URL url) throws IOException {
+				throw new IOException("Should not be reached");
+			}
+
+			@Override
+			public HttpConnection create(URL url, Proxy proxy)
+					throws IOException {
+				throw new IOException("Should not be reached");
+			}
+		};
+		HttpTransport.setConnectionFactory(failingConnectionFactory);
+		try {
+			File tmp = createTempDirectory("cloneViaApi");
+			boolean[] localFactoryUsed = { false };
+			TransportConfigCallback callback = new TransportConfigCallback() {
+
+				@Override
+				public void configure(Transport transport) {
+					if (transport instanceof TransportHttp) {
+						((TransportHttp) transport).setHttpConnectionFactory(
+								new HttpConnectionFactory() {
+
+									@Override
+									public HttpConnection create(URL url)
+											throws IOException {
+										localFactoryUsed[0] = true;
+										return globalFactory.create(url);
+									}
+
+									@Override
+									public HttpConnection create(URL url,
+											Proxy proxy) throws IOException {
+										localFactoryUsed[0] = true;
+										return globalFactory.create(url, proxy);
+									}
+								});
+					}
+				}
+			};
+			try (Git git = Git.cloneRepository().setDirectory(tmp)
+					.setTransportConfigCallback(callback)
+					.setURI(remoteURI.toPrivateString()).call()) {
+				assertTrue("Should have used the local HttpConnectionFactory",
+						localFactoryUsed[0]);
+			}
+		} finally {
+			HttpTransport.setConnectionFactory(globalFactory);
+		}
 	}
 
 	private void initialClone_Redirect(int nofRedirects, int code)
@@ -590,7 +728,8 @@ public class SmartClientSmartServerTest extends AllFactoriesHttpTestCase {
 		}
 
 		List<AccessEvent> requests = getRequests();
-		assertEquals(2 + nofRedirects, requests.size());
+		assertEquals((enableProtocolV2 ? 3 : 2) + nofRedirects,
+				requests.size());
 
 		int n = 0;
 		while (n < nofRedirects) {
@@ -606,7 +745,22 @@ public class SmartClientSmartServerTest extends AllFactoriesHttpTestCase {
 		assertEquals(200, info.getStatus());
 		assertEquals("application/x-git-upload-pack-advertisement",
 				info.getResponseHeader(HDR_CONTENT_TYPE));
-		assertEquals("gzip", info.getResponseHeader(HDR_CONTENT_ENCODING));
+		if (!enableProtocolV2) {
+			assertEquals("gzip", info.getResponseHeader(HDR_CONTENT_ENCODING));
+		} else {
+			AccessEvent lsRefs = requests.get(n++);
+			assertEquals("POST", lsRefs.getMethod());
+			assertEquals(join(remoteURI, "git-upload-pack"), lsRefs.getPath());
+			assertEquals(0, lsRefs.getParameters().size());
+			assertNotNull("has content-length",
+					lsRefs.getRequestHeader(HDR_CONTENT_LENGTH));
+			assertNull("not chunked",
+					lsRefs.getRequestHeader(HDR_TRANSFER_ENCODING));
+			assertEquals("version=2", lsRefs.getRequestHeader("Git-Protocol"));
+			assertEquals(200, lsRefs.getStatus());
+			assertEquals("application/x-git-upload-pack-result",
+					lsRefs.getResponseHeader(HDR_CONTENT_TYPE));
+		}
 
 		AccessEvent service = requests.get(n++);
 		assertEquals("POST", service.getMethod());
@@ -718,7 +872,7 @@ public class SmartClientSmartServerTest extends AllFactoriesHttpTestCase {
 		}
 
 		List<AccessEvent> requests = getRequests();
-		assertEquals(3, requests.size());
+		assertEquals(enableProtocolV2 ? 4 : 3, requests.size());
 
 		AccessEvent info = requests.get(0);
 		assertEquals("GET", info.getMethod());
@@ -728,24 +882,27 @@ public class SmartClientSmartServerTest extends AllFactoriesHttpTestCase {
 		assertEquals(200, info.getStatus());
 		assertEquals("application/x-git-upload-pack-advertisement",
 				info.getResponseHeader(HDR_CONTENT_TYPE));
-		assertEquals("gzip", info.getResponseHeader(HDR_CONTENT_ENCODING));
+		if (!enableProtocolV2) {
+			assertEquals("gzip", info.getResponseHeader(HDR_CONTENT_ENCODING));
+		}
 
 		AccessEvent redirect = requests.get(1);
 		assertEquals("POST", redirect.getMethod());
 		assertEquals(301, redirect.getStatus());
 
-		AccessEvent service = requests.get(2);
-		assertEquals("POST", service.getMethod());
-		assertEquals(join(remoteURI, "git-upload-pack"), service.getPath());
-		assertEquals(0, service.getParameters().size());
-		assertNotNull("has content-length",
-				service.getRequestHeader(HDR_CONTENT_LENGTH));
-		assertNull("not chunked",
-				service.getRequestHeader(HDR_TRANSFER_ENCODING));
-
-		assertEquals(200, service.getStatus());
-		assertEquals("application/x-git-upload-pack-result",
-				service.getResponseHeader(HDR_CONTENT_TYPE));
+		for (int i = 2; i < requests.size(); i++) {
+			AccessEvent service = requests.get(i);
+			assertEquals("POST", service.getMethod());
+			assertEquals(join(remoteURI, "git-upload-pack"), service.getPath());
+			assertEquals(0, service.getParameters().size());
+			assertNotNull("has content-length",
+					service.getRequestHeader(HDR_CONTENT_LENGTH));
+			assertNull("not chunked",
+					service.getRequestHeader(HDR_TRANSFER_ENCODING));
+			assertEquals(200, service.getStatus());
+			assertEquals("application/x-git-upload-pack-result",
+					service.getResponseHeader(HDR_CONTENT_TYPE));
+		}
 	}
 
 	@Test
@@ -779,6 +936,35 @@ public class SmartClientSmartServerTest extends AllFactoriesHttpTestCase {
 		}
 	}
 
+	private void assertFetchRequests(List<AccessEvent> requests, int index) {
+		AccessEvent info = requests.get(index++);
+		assertEquals("GET", info.getMethod());
+		assertEquals(join(authURI, "info/refs"), info.getPath());
+		assertEquals(1, info.getParameters().size());
+		assertEquals("git-upload-pack", info.getParameter("service"));
+		assertEquals(200, info.getStatus());
+		assertEquals("application/x-git-upload-pack-advertisement",
+				info.getResponseHeader(HDR_CONTENT_TYPE));
+		if (!enableProtocolV2) {
+			assertEquals("gzip", info.getResponseHeader(HDR_CONTENT_ENCODING));
+		}
+
+		for (int i = index; i < requests.size(); i++) {
+			AccessEvent service = requests.get(i);
+			assertEquals("POST", service.getMethod());
+			assertEquals(join(authURI, "git-upload-pack"), service.getPath());
+			assertEquals(0, service.getParameters().size());
+			assertNotNull("has content-length",
+					service.getRequestHeader(HDR_CONTENT_LENGTH));
+			assertNull("not chunked",
+					service.getRequestHeader(HDR_TRANSFER_ENCODING));
+
+			assertEquals(200, service.getStatus());
+			assertEquals("application/x-git-upload-pack-result",
+					service.getResponseHeader(HDR_CONTENT_TYPE));
+		}
+	}
+
 	@Test
 	public void testInitialClone_WithAuthentication() throws Exception {
 		try (Repository dst = createBareRepository();
@@ -792,34 +978,167 @@ public class SmartClientSmartServerTest extends AllFactoriesHttpTestCase {
 		}
 
 		List<AccessEvent> requests = getRequests();
-		assertEquals(3, requests.size());
+		assertEquals(enableProtocolV2 ? 4 : 3, requests.size());
 
 		AccessEvent info = requests.get(0);
 		assertEquals("GET", info.getMethod());
 		assertEquals(401, info.getStatus());
 
-		info = requests.get(1);
+		assertFetchRequests(requests, 1);
+	}
+
+	@Test
+	public void testInitialClone_WithPreAuthentication() throws Exception {
+		try (Repository dst = createBareRepository();
+				Transport t = Transport.open(dst, authURI)) {
+			assertFalse(dst.getObjectDatabase().has(A_txt));
+			((TransportHttp) t).setPreemptiveBasicAuthentication(
+					AppServer.username, AppServer.password);
+			t.fetch(NullProgressMonitor.INSTANCE, mirror(master));
+			assertTrue(dst.getObjectDatabase().has(A_txt));
+			assertEquals(B, dst.exactRef(master).getObjectId());
+			fsck(dst, B);
+		}
+
+		List<AccessEvent> requests = getRequests();
+		assertEquals(enableProtocolV2 ? 3 : 2, requests.size());
+
+		assertFetchRequests(requests, 0);
+	}
+
+	@Test
+	public void testInitialClone_WithPreAuthenticationCleared()
+			throws Exception {
+		try (Repository dst = createBareRepository();
+				Transport t = Transport.open(dst, authURI)) {
+			assertFalse(dst.getObjectDatabase().has(A_txt));
+			((TransportHttp) t).setPreemptiveBasicAuthentication(
+					AppServer.username, AppServer.password);
+			((TransportHttp) t).setPreemptiveBasicAuthentication(null, null);
+			t.setCredentialsProvider(testCredentials);
+			t.fetch(NullProgressMonitor.INSTANCE, mirror(master));
+			assertTrue(dst.getObjectDatabase().has(A_txt));
+			assertEquals(B, dst.exactRef(master).getObjectId());
+			fsck(dst, B);
+		}
+
+		List<AccessEvent> requests = getRequests();
+		assertEquals(enableProtocolV2 ? 4 : 3, requests.size());
+
+		AccessEvent info = requests.get(0);
 		assertEquals("GET", info.getMethod());
-		assertEquals(join(authURI, "info/refs"), info.getPath());
-		assertEquals(1, info.getParameters().size());
-		assertEquals("git-upload-pack", info.getParameter("service"));
-		assertEquals(200, info.getStatus());
-		assertEquals("application/x-git-upload-pack-advertisement",
-				info.getResponseHeader(HDR_CONTENT_TYPE));
-		assertEquals("gzip", info.getResponseHeader(HDR_CONTENT_ENCODING));
+		assertEquals(401, info.getStatus());
 
-		AccessEvent service = requests.get(2);
-		assertEquals("POST", service.getMethod());
-		assertEquals(join(authURI, "git-upload-pack"), service.getPath());
-		assertEquals(0, service.getParameters().size());
-		assertNotNull("has content-length",
-				service.getRequestHeader(HDR_CONTENT_LENGTH));
-		assertNull("not chunked",
-				service.getRequestHeader(HDR_TRANSFER_ENCODING));
+		assertFetchRequests(requests, 1);
+	}
 
-		assertEquals(200, service.getStatus());
-		assertEquals("application/x-git-upload-pack-result",
-				service.getResponseHeader(HDR_CONTENT_TYPE));
+	@Test
+	public void testInitialClone_PreAuthenticationTooLate() throws Exception {
+		try (Repository dst = createBareRepository();
+				Transport t = Transport.open(dst, authURI)) {
+			assertFalse(dst.getObjectDatabase().has(A_txt));
+			((TransportHttp) t).setPreemptiveBasicAuthentication(
+					AppServer.username, AppServer.password);
+			t.fetch(NullProgressMonitor.INSTANCE, mirror(master));
+			assertTrue(dst.getObjectDatabase().has(A_txt));
+			assertEquals(B, dst.exactRef(master).getObjectId());
+			fsck(dst, B);
+			List<AccessEvent> requests = getRequests();
+			assertEquals(enableProtocolV2 ? 3 : 2, requests.size());
+			assertFetchRequests(requests, 0);
+			assertThrows(IllegalStateException.class,
+					() -> ((TransportHttp) t).setPreemptiveBasicAuthentication(
+							AppServer.username, AppServer.password));
+			assertThrows(IllegalStateException.class, () -> ((TransportHttp) t)
+					.setPreemptiveBasicAuthentication(null, null));
+		}
+	}
+
+	@Test
+	public void testInitialClone_WithWrongPreAuthenticationAndCredentialProvider()
+			throws Exception {
+		try (Repository dst = createBareRepository();
+				Transport t = Transport.open(dst, authURI)) {
+			assertFalse(dst.getObjectDatabase().has(A_txt));
+			((TransportHttp) t).setPreemptiveBasicAuthentication(
+					AppServer.username, AppServer.password + 'x');
+			t.setCredentialsProvider(testCredentials);
+			t.fetch(NullProgressMonitor.INSTANCE, mirror(master));
+			assertTrue(dst.getObjectDatabase().has(A_txt));
+			assertEquals(B, dst.exactRef(master).getObjectId());
+			fsck(dst, B);
+		}
+
+		List<AccessEvent> requests = getRequests();
+		assertEquals(enableProtocolV2 ? 4 : 3, requests.size());
+
+		AccessEvent info = requests.get(0);
+		assertEquals("GET", info.getMethod());
+		assertEquals(401, info.getStatus());
+
+		assertFetchRequests(requests, 1);
+	}
+
+	@Test
+	public void testInitialClone_WithWrongPreAuthentication() throws Exception {
+		try (Repository dst = createBareRepository();
+				Transport t = Transport.open(dst, authURI)) {
+			assertFalse(dst.getObjectDatabase().has(A_txt));
+			((TransportHttp) t).setPreemptiveBasicAuthentication(
+					AppServer.username, AppServer.password + 'x');
+			TransportException e = assertThrows(TransportException.class,
+					() -> t.fetch(NullProgressMonitor.INSTANCE,
+							mirror(master)));
+			String msg = e.getMessage();
+			assertTrue("Unexpected exception message: " + msg,
+					msg.contains("no CredentialsProvider"));
+		}
+		List<AccessEvent> requests = getRequests();
+		assertEquals(1, requests.size());
+
+		AccessEvent info = requests.get(0);
+		assertEquals("GET", info.getMethod());
+		assertEquals(401, info.getStatus());
+	}
+
+	@Test
+	public void testInitialClone_WithUserInfo() throws Exception {
+		URIish withUserInfo = authURI.setUser(AppServer.username)
+				.setPass(AppServer.password);
+		try (Repository dst = createBareRepository();
+				Transport t = Transport.open(dst, withUserInfo)) {
+			assertFalse(dst.getObjectDatabase().has(A_txt));
+			t.fetch(NullProgressMonitor.INSTANCE, mirror(master));
+			assertTrue(dst.getObjectDatabase().has(A_txt));
+			assertEquals(B, dst.exactRef(master).getObjectId());
+			fsck(dst, B);
+		}
+
+		List<AccessEvent> requests = getRequests();
+		assertEquals(enableProtocolV2 ? 3 : 2, requests.size());
+
+		assertFetchRequests(requests, 0);
+	}
+
+	@Test
+	public void testInitialClone_PreAuthOverridesUserInfo() throws Exception {
+		URIish withUserInfo = authURI.setUser(AppServer.username)
+				.setPass(AppServer.password + 'x');
+		try (Repository dst = createBareRepository();
+				Transport t = Transport.open(dst, withUserInfo)) {
+			assertFalse(dst.getObjectDatabase().has(A_txt));
+			((TransportHttp) t).setPreemptiveBasicAuthentication(
+					AppServer.username, AppServer.password);
+			t.fetch(NullProgressMonitor.INSTANCE, mirror(master));
+			assertTrue(dst.getObjectDatabase().has(A_txt));
+			assertEquals(B, dst.exactRef(master).getObjectId());
+			fsck(dst, B);
+		}
+
+		List<AccessEvent> requests = getRequests();
+		assertEquals(enableProtocolV2 ? 3 : 2, requests.size());
+
+		assertFetchRequests(requests, 0);
 	}
 
 	@Test
@@ -899,19 +1218,20 @@ public class SmartClientSmartServerTest extends AllFactoriesHttpTestCase {
 		}
 
 		List<AccessEvent> requests = getRequests();
-		assertEquals(4, requests.size());
+		assertEquals(enableProtocolV2 ? 5 : 4, requests.size());
 
-		AccessEvent redirect = requests.get(0);
+		int requestNumber = 0;
+		AccessEvent redirect = requests.get(requestNumber++);
 		assertEquals("GET", redirect.getMethod());
 		assertEquals(join(cloneFrom, "info/refs"), redirect.getPath());
 		assertEquals(301, redirect.getStatus());
 
-		AccessEvent info = requests.get(1);
+		AccessEvent info = requests.get(requestNumber++);
 		assertEquals("GET", info.getMethod());
 		assertEquals(join(authURI, "info/refs"), info.getPath());
 		assertEquals(401, info.getStatus());
 
-		info = requests.get(2);
+		info = requests.get(requestNumber++);
 		assertEquals("GET", info.getMethod());
 		assertEquals(join(authURI, "info/refs"), info.getPath());
 		assertEquals(1, info.getParameters().size());
@@ -919,9 +1239,24 @@ public class SmartClientSmartServerTest extends AllFactoriesHttpTestCase {
 		assertEquals(200, info.getStatus());
 		assertEquals("application/x-git-upload-pack-advertisement",
 				info.getResponseHeader(HDR_CONTENT_TYPE));
-		assertEquals("gzip", info.getResponseHeader(HDR_CONTENT_ENCODING));
+		if (!enableProtocolV2) {
+			assertEquals("gzip", info.getResponseHeader(HDR_CONTENT_ENCODING));
+		} else {
+			AccessEvent lsRefs = requests.get(requestNumber++);
+			assertEquals("POST", lsRefs.getMethod());
+			assertEquals(join(authURI, "git-upload-pack"), lsRefs.getPath());
+			assertEquals(0, lsRefs.getParameters().size());
+			assertNotNull("has content-length",
+					lsRefs.getRequestHeader(HDR_CONTENT_LENGTH));
+			assertNull("not chunked",
+					lsRefs.getRequestHeader(HDR_TRANSFER_ENCODING));
+			assertEquals("version=2", lsRefs.getRequestHeader("Git-Protocol"));
+			assertEquals(200, lsRefs.getStatus());
+			assertEquals("application/x-git-upload-pack-result",
+					lsRefs.getResponseHeader(HDR_CONTENT_TYPE));
+		}
 
-		AccessEvent service = requests.get(3);
+		AccessEvent service = requests.get(requestNumber);
 		assertEquals("POST", service.getMethod());
 		assertEquals(join(authURI, "git-upload-pack"), service.getPath());
 		assertEquals(0, service.getParameters().size());
@@ -949,7 +1284,7 @@ public class SmartClientSmartServerTest extends AllFactoriesHttpTestCase {
 		}
 
 		List<AccessEvent> requests = getRequests();
-		assertEquals(3, requests.size());
+		assertEquals(enableProtocolV2 ? 4 : 3, requests.size());
 
 		AccessEvent info = requests.get(0);
 		assertEquals("GET", info.getMethod());
@@ -959,25 +1294,30 @@ public class SmartClientSmartServerTest extends AllFactoriesHttpTestCase {
 		assertEquals(200, info.getStatus());
 		assertEquals("application/x-git-upload-pack-advertisement",
 				info.getResponseHeader(HDR_CONTENT_TYPE));
-		assertEquals("gzip", info.getResponseHeader(HDR_CONTENT_ENCODING));
+		if (!enableProtocolV2) {
+			assertEquals("gzip", info.getResponseHeader(HDR_CONTENT_ENCODING));
+		}
 
 		AccessEvent service = requests.get(1);
 		assertEquals("POST", service.getMethod());
 		assertEquals(join(authOnPostURI, "git-upload-pack"), service.getPath());
 		assertEquals(401, service.getStatus());
 
-		service = requests.get(2);
-		assertEquals("POST", service.getMethod());
-		assertEquals(join(authOnPostURI, "git-upload-pack"), service.getPath());
-		assertEquals(0, service.getParameters().size());
-		assertNotNull("has content-length",
-				service.getRequestHeader(HDR_CONTENT_LENGTH));
-		assertNull("not chunked",
-				service.getRequestHeader(HDR_TRANSFER_ENCODING));
+		for (int i = 2; i < requests.size(); i++) {
+			service = requests.get(i);
+			assertEquals("POST", service.getMethod());
+			assertEquals(join(authOnPostURI, "git-upload-pack"),
+					service.getPath());
+			assertEquals(0, service.getParameters().size());
+			assertNotNull("has content-length",
+					service.getRequestHeader(HDR_CONTENT_LENGTH));
+			assertNull("not chunked",
+					service.getRequestHeader(HDR_TRANSFER_ENCODING));
 
-		assertEquals(200, service.getStatus());
-		assertEquals("application/x-git-upload-pack-result",
-				service.getResponseHeader(HDR_CONTENT_TYPE));
+			assertEquals(200, service.getStatus());
+			assertEquals("application/x-git-upload-pack-result",
+					service.getResponseHeader(HDR_CONTENT_TYPE));
+		}
 	}
 
 	@Test
@@ -1014,9 +1354,11 @@ public class SmartClientSmartServerTest extends AllFactoriesHttpTestCase {
 
 		List<AccessEvent> requests = getRequests();
 		requests.removeAll(cloneRequests);
-		assertEquals(2, requests.size());
 
-		AccessEvent info = requests.get(0);
+		assertEquals(enableProtocolV2 ? 3 : 2, requests.size());
+
+		int requestNumber = 0;
+		AccessEvent info = requests.get(requestNumber++);
 		assertEquals("GET", info.getMethod());
 		assertEquals(join(remoteURI, "info/refs"), info.getPath());
 		assertEquals(1, info.getParameters().size());
@@ -1025,9 +1367,24 @@ public class SmartClientSmartServerTest extends AllFactoriesHttpTestCase {
 		assertEquals("application/x-git-upload-pack-advertisement",
 				info.getResponseHeader(HDR_CONTENT_TYPE));
 
+		if (enableProtocolV2) {
+			AccessEvent lsRefs = requests.get(requestNumber++);
+			assertEquals("POST", lsRefs.getMethod());
+			assertEquals(join(remoteURI, "git-upload-pack"), lsRefs.getPath());
+			assertEquals(0, lsRefs.getParameters().size());
+			assertNotNull("has content-length",
+					lsRefs.getRequestHeader(HDR_CONTENT_LENGTH));
+			assertNull("not chunked",
+					lsRefs.getRequestHeader(HDR_TRANSFER_ENCODING));
+			assertEquals("version=2", lsRefs.getRequestHeader("Git-Protocol"));
+			assertEquals(200, lsRefs.getStatus());
+			assertEquals("application/x-git-upload-pack-result",
+					lsRefs.getResponseHeader(HDR_CONTENT_TYPE));
+		}
+
 		// We should have needed one request to perform the fetch.
 		//
-		AccessEvent service = requests.get(1);
+		AccessEvent service = requests.get(requestNumber);
 		assertEquals("POST", service.getMethod());
 		assertEquals(join(remoteURI, "git-upload-pack"), service.getPath());
 		assertEquals(0, service.getParameters().size());
@@ -1078,9 +1435,10 @@ public class SmartClientSmartServerTest extends AllFactoriesHttpTestCase {
 
 		List<AccessEvent> requests = getRequests();
 		requests.removeAll(cloneRequests);
-		assertEquals(3, requests.size());
+		assertEquals(enableProtocolV2 ? 4 : 3, requests.size());
 
-		AccessEvent info = requests.get(0);
+		int requestNumber = 0;
+		AccessEvent info = requests.get(requestNumber++);
 		assertEquals("GET", info.getMethod());
 		assertEquals(join(remoteURI, "info/refs"), info.getPath());
 		assertEquals(1, info.getParameters().size());
@@ -1089,10 +1447,25 @@ public class SmartClientSmartServerTest extends AllFactoriesHttpTestCase {
 		assertEquals("application/x-git-upload-pack-advertisement", info
 				.getResponseHeader(HDR_CONTENT_TYPE));
 
+		if (enableProtocolV2) {
+			AccessEvent lsRefs = requests.get(requestNumber++);
+			assertEquals("POST", lsRefs.getMethod());
+			assertEquals(join(remoteURI, "git-upload-pack"), lsRefs.getPath());
+			assertEquals(0, lsRefs.getParameters().size());
+			assertNotNull("has content-length",
+					lsRefs.getRequestHeader(HDR_CONTENT_LENGTH));
+			assertNull("not chunked",
+					lsRefs.getRequestHeader(HDR_TRANSFER_ENCODING));
+			assertEquals("version=2", lsRefs.getRequestHeader("Git-Protocol"));
+			assertEquals(200, lsRefs.getStatus());
+			assertEquals("application/x-git-upload-pack-result",
+					lsRefs.getResponseHeader(HDR_CONTENT_TYPE));
+		}
+
 		// We should have needed two requests to perform the fetch
 		// due to the high number of local unknown commits.
 		//
-		AccessEvent service = requests.get(1);
+		AccessEvent service = requests.get(requestNumber++);
 		assertEquals("POST", service.getMethod());
 		assertEquals(join(remoteURI, "git-upload-pack"), service.getPath());
 		assertEquals(0, service.getParameters().size());
@@ -1105,7 +1478,7 @@ public class SmartClientSmartServerTest extends AllFactoriesHttpTestCase {
 		assertEquals("application/x-git-upload-pack-result", service
 				.getResponseHeader(HDR_CONTENT_TYPE));
 
-		service = requests.get(2);
+		service = requests.get(requestNumber);
 		assertEquals("POST", service.getMethod());
 		assertEquals(join(remoteURI, "git-upload-pack"), service.getPath());
 		assertEquals(0, service.getParameters().size());
@@ -1117,6 +1490,64 @@ public class SmartClientSmartServerTest extends AllFactoriesHttpTestCase {
 		assertEquals(200, service.getStatus());
 		assertEquals("application/x-git-upload-pack-result", service
 				.getResponseHeader(HDR_CONTENT_TYPE));
+	}
+
+	@Test
+	public void testFetch_MaxHavesCutoffAfterAckOnly() throws Exception {
+		// Bootstrap by doing the clone.
+		//
+		TestRepository dst = createTestRepository();
+		try (Transport t = Transport.open(dst.getRepository(), remoteURI)) {
+			t.fetch(NullProgressMonitor.INSTANCE, mirror(master));
+		}
+		assertEquals(B, dst.getRepository().exactRef(master).getObjectId());
+
+		// Force enough into the local client that enumeration will
+		// need more than MAX_HAVES (256) haves to be sent. The server
+		// doesn't know any of these, so it will never ACK. The client
+		// should keep going.
+		//
+		// If it does, client and server will find a common commit, and
+		// the pack file will contain exactly the one commit object Z
+		// we create on the remote, which we can test for via the progress
+		// monitor, which should have something like
+		// "Receiving objects: 100% (1/1)". If the client sends a "done"
+		// too early, the server will send more objects, and we'll have
+		// a line like "Receiving objects: 100% (8/8)".
+		TestRepository.BranchBuilder b = dst.branch(master);
+		// The client will send 32 + 64 + 128 + 256 + 512 haves. Only the
+		// last one will be a common commit. If the cutoff kicks in too
+		// early (after 480), we'll get too many objects in the fetch.
+		for (int i = 0; i < 992; i++)
+			b.commit().tick(3600 /* 1 hour */).message("c" + i).create();
+
+		// Create a new commit on the remote.
+		//
+		RevCommit Z;
+		try (TestRepository<Repository> tr = new TestRepository<>(
+				remoteRepository)) {
+			b = tr.branch(master);
+			Z = b.commit().message("Z").create();
+		}
+
+		// Now incrementally update.
+		//
+		ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+		Writer writer = new OutputStreamWriter(buffer, StandardCharsets.UTF_8);
+		TextProgressMonitor monitor = new TextProgressMonitor(writer);
+		try (Transport t = Transport.open(dst.getRepository(), remoteURI)) {
+			t.fetch(monitor, mirror(master));
+		}
+		assertEquals(Z, dst.getRepository().exactRef(master).getObjectId());
+
+		String progressMessages = new String(buffer.toByteArray(),
+				StandardCharsets.UTF_8);
+		Pattern expected = Pattern
+				.compile("Receiving objects:\\s+100% \\(1/1\\)\n");
+		if (!expected.matcher(progressMessages).find()) {
+			System.out.println(progressMessages);
+			fail("Expected only one object to be sent");
+		}
 	}
 
 	@Test
@@ -1173,7 +1604,8 @@ public class SmartClientSmartServerTest extends AllFactoriesHttpTestCase {
 					Collections.<ObjectId> emptySet());
 			fail("Server accepted want " + id.name());
 		} catch (TransportException err) {
-			assertEquals("want " + id.name() + " not valid", err.getMessage());
+			assertTrue(err.getMessage()
+					.contains("want " + id.name() + " not valid"));
 		}
 	}
 
@@ -1186,6 +1618,8 @@ public class SmartClientSmartServerTest extends AllFactoriesHttpTestCase {
 					new DfsRepositoryDescription(repoName));
 			final TestRepository<Repository> repo = new TestRepository<>(
 					badRefsRepo);
+			badRefsRepo.getConfig().setInt("protocol", null, "version",
+					enableProtocolV2 ? 2 : 0);
 
 			ServletContextHandler app = noRefServer.addContext("/git");
 			GitServlet gs = new GitServlet();
@@ -1215,7 +1649,8 @@ public class SmartClientSmartServerTest extends AllFactoriesHttpTestCase {
 						Collections.<ObjectId> emptySet());
 				fail("Successfully served ref with value " + c.getRef(master));
 			} catch (TransportException err) {
-				assertEquals("internal server error", err.getMessage());
+				assertTrue("Unexpected exception message " + err.getMessage(),
+						err.getMessage().contains("Internal server error"));
 			}
 		} finally {
 			noRefServer.tearDown();
@@ -1391,5 +1826,4 @@ public class SmartClientSmartServerTest extends AllFactoriesHttpTestCase {
 		cfg.setBoolean("http", null, "receivepack", true);
 		cfg.save();
 	}
-
 }

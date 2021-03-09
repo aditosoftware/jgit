@@ -1,44 +1,11 @@
 /*
- * Copyright (C) 2018, Thomas Wolf <thomas.wolf@paranor.ch>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2018, Thomas Wolf <thomas.wolf@paranor.ch> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 package org.eclipse.jgit.transport.sshd;
 
@@ -52,13 +19,14 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CancellationException;
 
 import org.eclipse.jgit.annotations.NonNull;
+import org.eclipse.jgit.internal.transport.sshd.AuthenticationCanceledException;
 import org.eclipse.jgit.internal.transport.sshd.SshdText;
 import org.eclipse.jgit.transport.CredentialItem;
 import org.eclipse.jgit.transport.CredentialsProvider;
 import org.eclipse.jgit.transport.URIish;
+import org.eclipse.jgit.util.StringUtils;
 
 /**
  * A {@link KeyPasswordProvider} based on a {@link CredentialsProvider}.
@@ -188,32 +156,81 @@ public class IdentityPasswordProvider implements KeyPasswordProvider {
 		state.incCount();
 		String message = state.count == 1 ? SshdText.get().keyEncryptedMsg
 				: SshdText.get().keyEncryptedRetry;
-		char[] pass = getPassword(uri, message);
+		char[] pass = getPassword(uri, format(message, uri));
 		state.setPassword(pass);
 		return pass;
 	}
 
-	private char[] getPassword(URIish uri, String message) {
+	/**
+	 * Retrieves the JGit {@link CredentialsProvider} to use for user
+	 * interaction.
+	 *
+	 * @return the {@link CredentialsProvider} or {@code null} if none
+	 *         configured
+	 * @since 5.10
+	 */
+	protected CredentialsProvider getCredentialsProvider() {
+		return provider;
+	}
+
+	/**
+	 * Obtains the passphrase/password for an encrypted private key via the
+	 * {@link #getCredentialsProvider() configured CredentialsProvider}.
+	 *
+	 * @param uri
+	 *            identifying the resource to obtain a password for
+	 * @param message
+	 *            optional message text to display; may be {@code null} or empty
+	 *            if none
+	 * @return the password entered, or {@code null} if no
+	 *         {@link CredentialsProvider} is configured or none was entered
+	 * @throws java.util.concurrent.CancellationException
+	 *             if the user canceled the operation
+	 * @since 5.10
+	 */
+	protected char[] getPassword(URIish uri, String message) {
 		if (provider == null) {
 			return null;
 		}
-		List<CredentialItem> items = new ArrayList<>(2);
-		items.add(new CredentialItem.InformationalMessage(
-				format(message, uri)));
+		boolean haveMessage = !StringUtils.isEmptyOrNull(message);
+		List<CredentialItem> items = new ArrayList<>(haveMessage ? 2 : 1);
+		if (haveMessage) {
+			items.add(new CredentialItem.InformationalMessage(message));
+		}
 		CredentialItem.Password password = new CredentialItem.Password(
 				SshdText.get().keyEncryptedPrompt);
 		items.add(password);
 		try {
-			provider.get(uri, items);
+			boolean completed = provider.get(uri, items);
 			char[] pass = password.getValue();
-			if (pass == null) {
-				throw new CancellationException(
-						SshdText.get().authenticationCanceled);
+			if (!completed) {
+				cancelAuthentication();
+				return null;
 			}
-			return pass.clone();
+			return pass == null ? null : pass.clone();
 		} finally {
 			password.clear();
 		}
+	}
+
+	/**
+	 * Cancels the authentication process. Called by
+	 * {@link #getPassword(URIish, String)} when the user interaction has been
+	 * canceled. If this throws a
+	 * {@link java.util.concurrent.CancellationException}, the authentication
+	 * process is aborted; otherwise it may continue with the next configured
+	 * authentication mechanism, if any.
+	 * <p>
+	 * This default implementation always throws a
+	 * {@link java.util.concurrent.CancellationException}.
+	 * </p>
+	 *
+	 * @throws java.util.concurrent.CancellationException
+	 *             always
+	 * @since 5.10
+	 */
+	protected void cancelAuthentication() {
+		throw new AuthenticationCanceledException();
 	}
 
 	/**

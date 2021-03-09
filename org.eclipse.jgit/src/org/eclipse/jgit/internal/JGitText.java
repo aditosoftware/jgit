@@ -1,45 +1,12 @@
 /*
  * Copyright (C) 2010, 2013 Sasa Zivkov <sasa.zivkov@sap.com>
- * Copyright (C) 2012, Research In Motion Limited
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2012, 2021 Research In Motion Limited and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.internal;
@@ -91,6 +58,8 @@ public class JGitText extends TranslationBundle {
 	/***/ public String badEntryName;
 	/***/ public String badEscape;
 	/***/ public String badGroupHeader;
+	/***/ public String badIgnorePattern;
+	/***/ public String badIgnorePatternFull;
 	/***/ public String badObjectType;
 	/***/ public String badRef;
 	/***/ public String badSectionEntry;
@@ -115,6 +84,7 @@ public class JGitText extends TranslationBundle {
 	/***/ public String cannotCheckoutFromUnbornBranch;
 	/***/ public String cannotCheckoutOursSwitchBranch;
 	/***/ public String cannotCombineSquashWithNoff;
+	/***/ public String cannotCombineTopoSortWithTopoKeepBranchTogetherSort;
 	/***/ public String cannotCombineTreeFilterWithRevFilter;
 	/***/ public String cannotCommitOnARepoWithState;
 	/***/ public String cannotCommitWriteTo;
@@ -273,6 +243,7 @@ public class JGitText extends TranslationBundle {
 	/***/ public String deepenSinceWithDeepen;
 	/***/ public String deleteBranchUnexpectedResult;
 	/***/ public String deleteFileFailed;
+	/***/ public String deletedOrphanInPackDir;
 	/***/ public String deleteRequiresZeroNewId;
 	/***/ public String deleteTagUnexpectedResult;
 	/***/ public String deletingNotSupported;
@@ -282,6 +253,8 @@ public class JGitText extends TranslationBundle {
 	/***/ public String dirCacheFileIsNotLocked;
 	/***/ public String dirCacheIsNotLocked;
 	/***/ public String DIRCChecksumMismatch;
+	/***/ public String DIRCCorruptLength;
+	/***/ public String DIRCCorruptLengthFirst;
 	/***/ public String DIRCExtensionIsTooLargeAt;
 	/***/ public String DIRCExtensionNotSupportedByThisVersion;
 	/***/ public String DIRCHasTooManyEntries;
@@ -290,6 +263,7 @@ public class JGitText extends TranslationBundle {
 	/***/ public String downloadCancelledDuringIndexing;
 	/***/ public String duplicateAdvertisementsOf;
 	/***/ public String duplicateRef;
+	/***/ public String duplicateRefAttribute;
 	/***/ public String duplicateRemoteRefUpdateIsIllegal;
 	/***/ public String duplicateStagesNotAllowed;
 	/***/ public String eitherGitDirOrWorkTreeRequired;
@@ -327,6 +301,7 @@ public class JGitText extends TranslationBundle {
 	/***/ public String exceptionHookExecutionInterrupted;
 	/***/ public String exceptionOccurredDuringAddingOfOptionToALogCommand;
 	/***/ public String exceptionOccurredDuringReadingOfGIT_DIR;
+	/***/ public String exceptionWhileFindingUserHome;
 	/***/ public String exceptionWhileReadingPack;
 	/***/ public String expectedACKNAKFoundEOF;
 	/***/ public String expectedACKNAKGot;
@@ -341,11 +316,14 @@ public class JGitText extends TranslationBundle {
 	/***/ public String expectedReportForRefNotReceived;
 	/***/ public String failedAtomicFileCreation;
 	/***/ public String failedCreateLockFile;
+	/***/ public String failedReadHttpsProtocols;
 	/***/ public String failedToDetermineFilterDefinition;
+	/***/ public String failedToConvert;
 	/***/ public String failedUpdatingRefs;
 	/***/ public String failureDueToOneOfTheFollowing;
 	/***/ public String failureUpdatingFETCH_HEAD;
 	/***/ public String failureUpdatingTrackingRef;
+	/***/ public String fileAlreadyExists;
 	/***/ public String fileCannotBeDeleted;
 	/***/ public String fileIsTooLarge;
 	/***/ public String fileModeNotSetForPath;
@@ -359,19 +337,14 @@ public class JGitText extends TranslationBundle {
 	/***/ public String funnyRefname;
 	/***/ public String gcFailed;
 	/***/ public String gcTooManyUnpruned;
-	/***/ public String gpgFailedToParseSecretKey;
-	/***/ public String gpgNoCredentialsProvider;
-	/***/ public String gpgNoKeyring;
-	/***/ public String gpgNoKeyInLegacySecring;
-	/***/ public String gpgNoPublicKeyFound;
-	/***/ public String gpgNoSecretKeyForPublicKey;
-	/***/ public String gpgNotASigningKey;
-	/***/ public String gpgKeyInfo;
-	/***/ public String gpgSigningCancelled;
 	/***/ public String headRequiredToStash;
 	/***/ public String hoursAgo;
 	/***/ public String httpConfigCannotNormalizeURL;
 	/***/ public String httpConfigInvalidURL;
+	/***/ public String httpFactoryInUse;
+	/***/ public String httpPreAuthTooLate;
+	/***/ public String httpUserInfoDecodeError;
+	/***/ public String httpWrongConnectionType;
 	/***/ public String hugeIndexesAreNotSupportedByJgitYet;
 	/***/ public String hunkBelongsToAnotherFile;
 	/***/ public String hunkDisconnectedFromFile;
@@ -384,6 +357,7 @@ public class JGitText extends TranslationBundle {
 	/***/ public String incorrectOBJECT_ID_LENGTH;
 	/***/ public String indexFileCorruptedNegativeBucketCount;
 	/***/ public String indexFileIsTooLargeForJgit;
+	/***/ public String indexNumbersNotIncreasing;
 	/***/ public String indexWriteException;
 	/***/ public String initFailedBareRepoDifferentDirs;
 	/***/ public String initFailedDirIsNoDirectory;
@@ -409,6 +383,12 @@ public class JGitText extends TranslationBundle {
 	/***/ public String invalidGitdirRef;
 	/***/ public String invalidGitModules;
 	/***/ public String invalidGitType;
+	/***/ public String invalidHeaderFormat;
+	/***/ public String invalidHeaderKey;
+	/***/ public String invalidHeaderValue;
+	/***/ public String invalidHexString;
+	/***/ public String invalidHomeDirectory;
+	/***/ public String invalidHooksPath;
 	/***/ public String invalidId;
 	/***/ public String invalidId0;
 	/***/ public String invalidIdLength;
@@ -467,6 +447,10 @@ public class JGitText extends TranslationBundle {
 	/***/ public String lockFailedRetry;
 	/***/ public String lockOnNotClosed;
 	/***/ public String lockOnNotHeld;
+	/***/ public String logInconsistentFiletimeDiff;
+	/***/ public String logLargerFiletimeDiff;
+	/***/ public String logSmallerFiletime;
+	/***/ public String logXDGConfigHomeInvalid;
 	/***/ public String maxCountMustBeNonNegative;
 	/***/ public String mergeConflictOnNonNoteEntries;
 	/***/ public String mergeConflictOnNotes;
@@ -512,6 +496,7 @@ public class JGitText extends TranslationBundle {
 	/***/ public String nonCommitToHeads;
 	/***/ public String noPathAttributesFound;
 	/***/ public String noSuchRef;
+	/***/ public String noSuchRefKnown;
 	/***/ public String noSuchSubmodule;
 	/***/ public String notABoolean;
 	/***/ public String notABundle;
@@ -610,8 +595,10 @@ public class JGitText extends TranslationBundle {
 	/***/ public String refAlreadyExists1;
 	/***/ public String reflogEntryNotFound;
 	/***/ public String refNotResolved;
-	/***/ public String refTableRecordsMustIncrease;
+	/***/ public String reftableDirExists;
+	/***/ public String reftableRecordsMustIncrease;
 	/***/ public String refUpdateReturnCodeWas;
+	/***/ public String remoteBranchNotFound;
 	/***/ public String remoteConfigHasNoURIAssociated;
 	/***/ public String remoteDoesNotHaveSpec;
 	/***/ public String remoteDoesNotSupportSmartHTTPPush;
@@ -666,7 +653,10 @@ public class JGitText extends TranslationBundle {
 	/***/ public String shortReadOfBlock;
 	/***/ public String shortReadOfOptionalDIRCExtensionExpectedAnotherBytes;
 	/***/ public String shortSkipOfBlock;
-	/***/ public String signingNotSupportedOnTag;
+	/***/ public String signatureVerificationError;
+	/***/ public String signatureVerificationUnavailable;
+	/***/ public String signedTagMessageNoLf;
+	/***/ public String signingServiceUnavailable;
 	/***/ public String similarityScoreMustBeWithinBounds;
 	/***/ public String skipMustBeNonNegative;
 	/***/ public String skipNotAccessiblePath;
@@ -677,7 +667,7 @@ public class JGitText extends TranslationBundle {
 	/***/ public String sourceRefNotSpecifiedForRefspec;
 	/***/ public String squashCommitNotUpdatingHEAD;
 	/***/ public String sshCommandFailed;
-	/***/ public String sshUserNameError;
+	/***/ public String sshCommandTimeout;
 	/***/ public String sslFailureExceptionMessage;
 	/***/ public String sslFailureInfo;
 	/***/ public String sslFailureCause;
@@ -738,7 +728,6 @@ public class JGitText extends TranslationBundle {
 	/***/ public String transportProtoSSH;
 	/***/ public String transportProtoTest;
 	/***/ public String transportProvidedRefWithNoObjectId;
-	/***/ public String transportSSHRetryInterrupt;
 	/***/ public String treeEntryAlreadyExists;
 	/***/ public String treeFilterMarkerTooManyFilters;
 	/***/ public String treeWalkMustHaveExactlyTwoTrees;
@@ -772,6 +761,7 @@ public class JGitText extends TranslationBundle {
 	/***/ public String unknownObjectInIndex;
 	/***/ public String unknownObjectType;
 	/***/ public String unknownObjectType2;
+	/***/ public String unknownRefStorageFormat;
 	/***/ public String unknownRepositoryFormat;
 	/***/ public String unknownRepositoryFormat2;
 	/***/ public String unknownTransportCommand;
@@ -806,6 +796,13 @@ public class JGitText extends TranslationBundle {
 	/***/ public String URINotSupported;
 	/***/ public String userConfigInvalid;
 	/***/ public String validatingGitModules;
+	/***/ public String verifySignatureBad;
+	/***/ public String verifySignatureExpired;
+	/***/ public String verifySignatureGood;
+	/***/ public String verifySignatureIssuer;
+	/***/ public String verifySignatureKey;
+	/***/ public String verifySignatureMade;
+	/***/ public String verifySignatureTrust;
 	/***/ public String walkFailure;
 	/***/ public String wantNoSpaceWithCapabilities;
 	/***/ public String wantNotValid;

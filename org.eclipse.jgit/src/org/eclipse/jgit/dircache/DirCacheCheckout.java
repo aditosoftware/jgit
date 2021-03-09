@@ -3,41 +3,14 @@
  * Copyright (C) 2008, Robin Rosenberg <robin.rosenberg@dewire.com>
  * Copyright (C) 2008, Roger C. Soares <rogersoares@intelinet.com.br>
  * Copyright (C) 2006, Shawn O. Pearce <spearce@spearce.org>
- * Copyright (C) 2010, Chrisian Halstrick <christian.halstrick@sap.com> and
- * other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2010, Chrisian Halstrick <christian.halstrick@sap.com>
+ * Copyright (C) 2019-2020, Andre Bossert <andre.bossert@siemens.com>
  *
  * This program and the accompanying materials are made available under the
- * terms of the Eclipse Distribution License v1.0 which accompanies this
- * distribution, is reproduced below, and is available at
- * http://www.eclipse.org/org/documents/edl-v10.php
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * - Redistributions of source code must retain the above copyright notice, this
- * list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above copyright notice,
- * this list of conditions and the following disclaimer in the documentation
- * and/or other materials provided with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the names of its
- * contributors may be used to endorse or promote products derived from this
- * software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.dircache;
@@ -53,9 +26,11 @@ import java.text.MessageFormat;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.eclipse.jgit.api.errors.CanceledException;
 import org.eclipse.jgit.api.errors.FilterFailedException;
@@ -104,7 +79,8 @@ import org.slf4j.LoggerFactory;
  * This class handles checking out one or two trees merging with the index.
  */
 public class DirCacheCheckout {
-	private static Logger LOG = LoggerFactory.getLogger(DirCacheCheckout.class);
+	private static final Logger LOG = LoggerFactory
+			.getLogger(DirCacheCheckout.class);
 
 	private static final int MAX_EXCEPTION_TEXT_SIZE = 10 * 1024;
 
@@ -141,6 +117,8 @@ public class DirCacheCheckout {
 	private ArrayList<String> conflicts = new ArrayList<>();
 
 	private ArrayList<String> removed = new ArrayList<>();
+
+	private ArrayList<String> kept = new ArrayList<>();
 
 	private ObjectId mergeCommitTree;
 
@@ -432,11 +410,11 @@ public class DirCacheCheckout {
 					if (mtime == null || mtime.equals(Instant.EPOCH)) {
 						entry.setLastModified(f.getEntryLastModifiedInstant());
 					}
-					keep(entry, f);
+					keep(i.getEntryPathString(), entry, f);
 				}
 			} else
 				// The index contains a folder
-				keep(i.getDirCacheEntry(), f);
+				keep(i.getEntryPathString(), i.getDirCacheEntry(), f);
 		} else {
 			// There is no entry in the merge commit. Means: we want to delete
 			// what's currently in the index and working tree
@@ -496,8 +474,11 @@ public class DirCacheCheckout {
 				dc.unlock();
 			} finally {
 				if (performingCheckout) {
+					Set<String> touched = new HashSet<>(conflicts);
+					touched.addAll(getUpdated().keySet());
+					touched.addAll(kept);
 					WorkingTreeModifiedEvent event = new WorkingTreeModifiedEvent(
-							getUpdated().keySet(), getRemoved());
+							touched, getRemoved());
 					if (!event.isEmpty()) {
 						repo.fireEvent(event);
 					}
@@ -517,10 +498,10 @@ public class DirCacheCheckout {
 				prescanOneTree();
 
 			if (!conflicts.isEmpty()) {
-				if (failOnConflict)
+				if (failOnConflict) {
 					throw new CheckoutConflictException(conflicts.toArray(new String[0]));
-				else
-					cleanUpConflicts();
+				}
+				cleanUpConflicts();
 			}
 
 			// update our index
@@ -826,14 +807,14 @@ public class DirCacheCheckout {
 
 				break;
 			case 0xDFD: // 3 4
-				keep(dce, f);
+				keep(name, dce, f);
 				break;
 			case 0xF0D: // 18
 				remove(name);
 				break;
 			case 0xDFF: // 5 5b 6 6b
 				if (equalIdAndMode(iId, iMode, mId, mMode))
-					keep(dce, f); // 5 6
+					keep(name, dce, f); // 5 6
 				else
 					conflict(name, dce, h, m); // 5b 6b
 				break;
@@ -863,7 +844,7 @@ public class DirCacheCheckout {
 					conflict(name, dce, h, m); // 9
 				break;
 			case 0xFD0: // keep without a rule
-				keep(dce, f);
+				keep(name, dce, f);
 				break;
 			case 0xFFD: // 12 13 14
 				if (equalIdAndMode(hId, hMode, iId, iMode))
@@ -883,7 +864,7 @@ public class DirCacheCheckout {
 					conflict(name, dce, h, m);
 				break;
 			default:
-				keep(dce, f);
+				keep(name, dce, f);
 			}
 			return;
 		}
@@ -895,15 +876,14 @@ public class DirCacheCheckout {
 				// the workingtree entry doesn't exist or also contains a folder
 				// -> no problem
 				return;
-			} else {
-				// the workingtree entry exists and is not a folder
-				if (!idEqual(h, m)) {
-					// Because HEAD and MERGE differ we will try to update the
-					// workingtree with a folder -> return a conflict
-					conflict(name, null, null, null);
-				}
-				return;
 			}
+			// the workingtree entry exists and is not a folder
+			if (!idEqual(h, m)) {
+				// Because HEAD and MERGE differ we will try to update the
+				// workingtree with a folder -> return a conflict
+				conflict(name, null, null, null);
+			}
+			return;
 		}
 
 		if ((ffMask == 0x00F) && f != null && FileMode.TREE.equals(f.getEntryFileMode())) {
@@ -966,12 +946,14 @@ public class DirCacheCheckout {
 				// called before). Ignore the cached deletion and use what we
 				// find in Merge. Potentially updates the file.
 				if (equalIdAndMode(hId, hMode, mId, mMode)) {
-					if (initialCheckout)
+					if (initialCheckout || force) {
 						update(name, mId, mMode);
-					else
-						keep(dce, f);
-				} else
+					} else {
+						keep(name, dce, f);
+					}
+				} else {
 					conflict(name, dce, h, m);
+				}
 			}
 		} else {
 			// Something in Index
@@ -1032,7 +1014,7 @@ public class DirCacheCheckout {
 						// Nothing in Head
 						// Something in Index
 						// -> Merge contains nothing new. Keep the index.
-						keep(dce, f);
+						keep(name, dce, f);
 				} else
 					// Merge contains something and it is not the same as Index
 					// Nothing in Head
@@ -1083,15 +1065,15 @@ public class DirCacheCheckout {
 							// Something in Head
 
 							if (!FileMode.TREE.equals(f.getEntryFileMode())
-									&& FileMode.TREE.equals(iMode))
+									&& FileMode.TREE.equals(iMode)) {
 								// The workingtree contains a file and the index semantically contains a folder.
 								// Git considers the workingtree file as untracked. Just keep the untracked file.
 								return;
-							else
-								// -> file is dirty and tracked but is should be
-								// removed. That's a conflict
-								conflict(name, dce, h, m);
-						} else
+							}
+							// -> file is dirty and tracked but is should be
+							// removed. That's a conflict
+							conflict(name, dce, h, m);
+						} else {
 							// file doesn't exist or is clean
 							// Index contains the same as Head
 							// Something different from a submodule in Index
@@ -1099,7 +1081,8 @@ public class DirCacheCheckout {
 							// Something in Head
 							// -> Remove from index and delete the file
 							remove(name);
-					} else
+						}
+					} else {
 						// Index contains something different from Head
 						// Something different from a submodule in Index
 						// Nothing in Merge
@@ -1108,6 +1091,7 @@ public class DirCacheCheckout {
 						// filesystem). But Merge wants the path to be removed.
 						// Report a conflict
 						conflict(name, dce, h, m);
+					}
 				}
 			} else {
 				// Something in Merge
@@ -1181,7 +1165,7 @@ public class DirCacheCheckout {
 					// to the other one.
 					// -> In all three cases we don't touch index and file.
 
-					keep(dce, f);
+					keep(name, dce, f);
 				}
 			}
 		}
@@ -1230,13 +1214,21 @@ public class DirCacheCheckout {
 		}
 	}
 
-	private void keep(DirCacheEntry e, WorkingTreeIterator f)
+	private void keep(String path, DirCacheEntry e, WorkingTreeIterator f)
 			throws IOException {
-		if (e != null && !FileMode.TREE.equals(e.getFileMode()))
+		if (e == null) {
+			return;
+		}
+		if (!FileMode.TREE.equals(e.getFileMode())) {
 			builder.add(e);
+		}
 		if (force) {
-			if (f.isModified(e, true, this.walk.getObjectReader())) {
-				checkoutEntry(repo, e, this.walk.getObjectReader());
+			if (f == null || f.isModified(e, true, walk.getObjectReader())) {
+				kept.add(path);
+				checkoutEntry(repo, e, walk.getObjectReader(), false,
+						new CheckoutMetadata(walk.getEolStreamType(CHECKOUT_OP),
+								walk.getFilterCommand(
+										Constants.ATTR_FILTER_TYPE_SMUDGE)));
 			}
 		}
 	}
@@ -1340,13 +1332,14 @@ public class DirCacheCheckout {
 	private boolean isModified_IndexTree(String path, ObjectId iId,
 			FileMode iMode, ObjectId tId, FileMode tMode, ObjectId rootTree)
 			throws CorruptObjectException, IOException {
-		if (iMode != tMode)
+		if (iMode != tMode) {
 			return true;
+		}
 		if (FileMode.TREE.equals(iMode)
-				&& (iId == null || ObjectId.zeroId().equals(iId)))
+				&& (iId == null || ObjectId.zeroId().equals(iId))) {
 			return isModifiedSubtree_IndexTree(path, rootTree);
-		else
-			return !equalIdAndMode(iId, iMode, tId, tMode);
+		}
+		return !equalIdAndMode(iId, iMode, tId, tMode);
 	}
 
 	/**
@@ -1491,29 +1484,9 @@ public class DirCacheCheckout {
 		File tmpFile = File.createTempFile(
 				"._" + name, null, parentDir); //$NON-NLS-1$
 
-		EolStreamType nonNullEolStreamType;
-		if (checkoutMetadata.eolStreamType != null) {
-			nonNullEolStreamType = checkoutMetadata.eolStreamType;
-		} else if (opt.getAutoCRLF() == AutoCRLF.TRUE) {
-			nonNullEolStreamType = EolStreamType.AUTO_CRLF;
-		} else {
-			nonNullEolStreamType = EolStreamType.DIRECT;
-		}
-		try (OutputStream channel = EolStreamTypeUtil.wrapOutputStream(
-				new FileOutputStream(tmpFile), nonNullEolStreamType)) {
-			if (checkoutMetadata.smudgeFilterCommand != null) {
-				if (FilterCommandRegistry
-						.isRegistered(checkoutMetadata.smudgeFilterCommand)) {
-					runBuiltinFilterCommand(repo, checkoutMetadata, ol,
-							channel);
-				} else {
-					runExternalFilterCommand(repo, entry, checkoutMetadata, ol,
-							fs, channel);
-				}
-			} else {
-				ol.copyTo(channel);
-			}
-		}
+		getContent(repo, entry.getPathString(), checkoutMetadata, ol, opt,
+				new FileOutputStream(tmpFile));
+
 		// The entry needs to correspond to the on-disk filesize. If the content
 		// was filtered (either by autocrlf handling or smudge filters) ask the
 		// filesystem again for the length. Otherwise the objectloader knows the
@@ -1552,11 +1525,69 @@ public class DirCacheCheckout {
 		entry.setLastModified(fs.lastModifiedInstant(f));
 	}
 
+	/**
+	 * Return filtered content for a specific object (blob). EOL handling and
+	 * smudge-filter handling are applied in the same way as it would be done
+	 * during a checkout.
+	 *
+	 * @param repo
+	 *            the repository
+	 * @param path
+	 *            the path used to determine the correct filters for the object
+	 * @param checkoutMetadata
+	 *            containing
+	 *            <ul>
+	 *            <li>smudgeFilterCommand to be run for smudging the object</li>
+	 *            <li>eolStreamType used for stream conversion (can be
+	 *            null)</li>
+	 *            </ul>
+	 * @param ol
+	 *            the object loader to read raw content of the object
+	 * @param opt
+	 *            the working tree options where only 'core.autocrlf' is used
+	 *            for EOL handling if 'checkoutMetadata.eolStreamType' is not
+	 *            valid
+	 * @param os
+	 *            the output stream the filtered content is written to. The
+	 *            caller is responsible to close the stream.
+	 * @throws IOException
+	 *
+	 * @since 5.7
+	 */
+	public static void getContent(Repository repo, String path,
+			CheckoutMetadata checkoutMetadata, ObjectLoader ol,
+			WorkingTreeOptions opt, OutputStream os)
+			throws IOException {
+		EolStreamType nonNullEolStreamType;
+		if (checkoutMetadata.eolStreamType != null) {
+			nonNullEolStreamType = checkoutMetadata.eolStreamType;
+		} else if (opt.getAutoCRLF() == AutoCRLF.TRUE) {
+			nonNullEolStreamType = EolStreamType.AUTO_CRLF;
+		} else {
+			nonNullEolStreamType = EolStreamType.DIRECT;
+		}
+		try (OutputStream channel = EolStreamTypeUtil.wrapOutputStream(
+				os, nonNullEolStreamType)) {
+			if (checkoutMetadata.smudgeFilterCommand != null) {
+				if (FilterCommandRegistry
+						.isRegistered(checkoutMetadata.smudgeFilterCommand)) {
+					runBuiltinFilterCommand(repo, checkoutMetadata, ol,
+							channel);
+				} else {
+					runExternalFilterCommand(repo, path, checkoutMetadata, ol,
+							channel);
+				}
+			} else {
+				ol.copyTo(channel);
+			}
+		}
+	}
+
 	// Run an external filter command
-	private static void runExternalFilterCommand(Repository repo,
-			DirCacheEntry entry,
-			CheckoutMetadata checkoutMetadata, ObjectLoader ol, FS fs,
+	private static void runExternalFilterCommand(Repository repo, String path,
+			CheckoutMetadata checkoutMetadata, ObjectLoader ol,
 			OutputStream channel) throws IOException {
+		FS fs = repo.getFS();
 		ProcessBuilder filterProcessBuilder = fs.runInShell(
 				checkoutMetadata.smudgeFilterCommand, new String[0]);
 		filterProcessBuilder.directory(repo.getWorkTree());
@@ -1575,12 +1606,12 @@ public class DirCacheCheckout {
 		} catch (IOException | InterruptedException e) {
 			throw new IOException(new FilterFailedException(e,
 					checkoutMetadata.smudgeFilterCommand,
-					entry.getPathString()));
+					path));
 		}
 		if (rc != 0) {
 			throw new IOException(new FilterFailedException(rc,
 					checkoutMetadata.smudgeFilterCommand,
-					entry.getPathString(),
+					path,
 					result.getStdout().toByteArray(MAX_EXCEPTION_TEXT_SIZE),
 					RawParseUtils.decode(result.getStderr()
 							.toByteArray(MAX_EXCEPTION_TEXT_SIZE))));

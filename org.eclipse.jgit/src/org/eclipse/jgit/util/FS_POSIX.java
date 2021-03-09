@@ -1,44 +1,11 @@
 /*
- * Copyright (C) 2010, Robin Rosenberg
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2010, Robin Rosenberg and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 package org.eclipse.jgit.util;
 
@@ -49,7 +16,7 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.io.PrintStream;
+import java.io.OutputStream;
 import java.nio.charset.Charset;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileStore;
@@ -74,7 +41,6 @@ import org.eclipse.jgit.api.errors.JGitInternalException;
 import org.eclipse.jgit.errors.CommandFailedException;
 import org.eclipse.jgit.errors.ConfigInvalidException;
 import org.eclipse.jgit.internal.JGitText;
-import org.eclipse.jgit.lib.Constants;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.lib.StoredConfig;
 import org.slf4j.Logger;
@@ -86,7 +52,9 @@ import org.slf4j.LoggerFactory;
  * @since 3.0
  */
 public class FS_POSIX extends FS {
-	private final static Logger LOG = LoggerFactory.getLogger(FS_POSIX.class);
+	private static final Logger LOG = LoggerFactory.getLogger(FS_POSIX.class);
+
+	private static final String DEFAULT_GIT_LOCATION = "/usr/bin/git"; //$NON-NLS-1$
 
 	private static final int DEFAULT_UMASK = 0022;
 	private volatile int umask = -1;
@@ -172,24 +140,46 @@ public class FS_POSIX extends FS {
 		String path = SystemReader.getInstance().getenv("PATH"); //$NON-NLS-1$
 		File gitExe = searchPath(path, "git"); //$NON-NLS-1$
 
-		if (gitExe == null) {
-			if (SystemReader.getInstance().isMacOS()) {
+		if (SystemReader.getInstance().isMacOS()) {
+			if (gitExe == null
+					|| DEFAULT_GIT_LOCATION.equals(gitExe.getPath())) {
 				if (searchPath(path, "bash") != null) { //$NON-NLS-1$
 					// On MacOSX, PATH is shorter when Eclipse is launched from the
 					// Finder than from a terminal. Therefore try to launch bash as a
 					// login shell and search using that.
-					String w;
 					try {
-						w = readPipe(userHome(),
+						String w = readPipe(userHome(),
 							new String[]{"bash", "--login", "-c", "which git"}, // //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
 							Charset.defaultCharset().name());
+						if (!StringUtils.isEmptyOrNull(w)) {
+							gitExe = new File(w);
+						}
 					} catch (CommandFailedException e) {
 						LOG.warn(e.getMessage());
-						return null;
 					}
-					if (!StringUtils.isEmptyOrNull(w)) {
-						gitExe = new File(w);
+				}
+			}
+			if (gitExe != null
+					&& DEFAULT_GIT_LOCATION.equals(gitExe.getPath())) {
+				// If we still have the default git exe, it's an XCode wrapper
+				// that may prompt the user to install the XCode command line
+				// tools if not already present. Avoid the prompt by returning
+				// null if no XCode git is there.
+				try {
+					String w = readPipe(userHome(),
+							new String[] { "xcode-select", "-p" }, //$NON-NLS-1$ //$NON-NLS-2$
+							Charset.defaultCharset().name());
+					if (StringUtils.isEmptyOrNull(w)) {
+						gitExe = null;
+					} else {
+						File realGitExe = new File(new File(w),
+								DEFAULT_GIT_LOCATION.substring(1));
+						if (!realGitExe.exists()) {
+							gitExe = null;
+						}
 					}
+				} catch (CommandFailedException e) {
+					gitExe = null;
 				}
 			}
 		}
@@ -270,10 +260,15 @@ public class FS_POSIX extends FS {
 		return proc;
 	}
 
+	@Override
+	String shellQuote(String cmd) {
+		return QuotedString.BOURNE.quote(cmd);
+	}
+
 	/** {@inheritDoc} */
 	@Override
 	public ProcessResult runHookIfPresent(Repository repository, String hookName,
-			String[] args, PrintStream outRedirect, PrintStream errRedirect,
+			String[] args, OutputStream outRedirect, OutputStream errRedirect,
 			String stdinArgs) throws JGitInternalException {
 		return internalRunHookIfPresent(repository, hookName, args, outRedirect,
 				errRedirect, stdinArgs);
@@ -307,20 +302,6 @@ public class FS_POSIX extends FS {
 	@Override
 	public String normalize(String name) {
 		return FileUtils.normalize(name);
-	}
-
-	/** {@inheritDoc} */
-	@Override
-	public File findHook(Repository repository, String hookName) {
-		final File gitdir = repository.getDirectory();
-		if (gitdir == null) {
-			return null;
-		}
-		final Path hookPath = gitdir.toPath().resolve(Constants.HOOKS)
-				.resolve(hookName);
-		if (Files.isExecutable(hookPath))
-			return hookPath.toFile();
-		return null;
 	}
 
 	/** {@inheritDoc} */

@@ -19,7 +19,6 @@ import java.util.Collections;
 import java.util.concurrent.TimeUnit;
 
 import org.eclipse.jgit.internal.storage.dfs.DfsObjDatabase.PackSource;
-import org.eclipse.jgit.internal.storage.dfs.DfsRefDatabase;
 import org.eclipse.jgit.internal.storage.reftable.RefCursor;
 import org.eclipse.jgit.internal.storage.reftable.ReftableConfig;
 import org.eclipse.jgit.internal.storage.reftable.ReftableReader;
@@ -169,12 +168,16 @@ public class DfsGarbageCollectorTest {
 		DfsPackFile garbage = null;
 		for (DfsPackFile pack : odb.getPacks()) {
 			DfsPackDescription d = pack.getPackDescription();
-			if (d.getPackSource() == GC) {
+			switch (d.getPackSource()) {
+			case GC:
 				gc = pack;
-			} else if (d.getPackSource() == UNREACHABLE_GARBAGE) {
+				break;
+			case UNREACHABLE_GARBAGE:
 				garbage = pack;
-			} else {
+				break;
+			default:
 				fail("unexpected " + d.getPackSource());
+				break;
 			}
 		}
 
@@ -200,16 +203,20 @@ public class DfsGarbageCollectorTest {
 		boolean garbagePackFound = false;
 		for (DfsPackFile pack : odb.getPacks()) {
 			DfsPackDescription d = pack.getPackDescription();
-			if (d.getPackSource() == GC) {
+			switch (d.getPackSource()) {
+			case GC:
 				gcPackFound = true;
 				assertTrue("has commit0", isObjectInPack(commit0, pack));
 				assertFalse("no commit1", isObjectInPack(commit1, pack));
-			} else if (d.getPackSource() == UNREACHABLE_GARBAGE) {
+				break;
+			case UNREACHABLE_GARBAGE:
 				garbagePackFound = true;
 				assertFalse("no commit0", isObjectInPack(commit0, pack));
 				assertTrue("has commit1", isObjectInPack(commit1, pack));
-			} else {
+				break;
+			default:
 				fail("unexpected " + d.getPackSource());
+				break;
 			}
 		}
 		assertTrue("gc pack found", gcPackFound);
@@ -240,16 +247,20 @@ public class DfsGarbageCollectorTest {
 		boolean garbagePackFound = false;
 		for (DfsPackFile pack : odb.getPacks()) {
 			DfsPackDescription d = pack.getPackDescription();
-			if (d.getPackSource() == GC) {
+			switch (d.getPackSource()) {
+			case GC:
 				gcPackFound = true;
 				assertTrue("has commit0", isObjectInPack(commit0, pack));
 				assertFalse("no commit1", isObjectInPack(commit1, pack));
-			} else if (d.getPackSource() == UNREACHABLE_GARBAGE) {
+				break;
+			case UNREACHABLE_GARBAGE:
 				garbagePackFound = true;
 				assertFalse("no commit0", isObjectInPack(commit0, pack));
 				assertTrue("has commit1", isObjectInPack(commit1, pack));
-			} else {
+				break;
+			default:
 				fail("unexpected " + d.getPackSource());
+				break;
 			}
 		}
 		assertTrue("gc pack found", gcPackFound);
@@ -448,12 +459,16 @@ public class DfsGarbageCollectorTest {
 		long inputPacksSize = 32;
 		for (DfsPackFile pack : odb.getPacks()) {
 			DfsPackDescription d = pack.getPackDescription();
-			if (d.getPackSource() == GC) {
+			switch (d.getPackSource()) {
+			case GC:
 				gcPackFound = true;
-			} else if (d.getPackSource() == INSERT) {
+				break;
+			case INSERT:
 				insertPackFound = true;
-			} else {
+				break;
+			default:
 				fail("unexpected " + d.getPackSource());
+				break;
 			}
 			inputPacksSize += d.getFileSize(PACK) - 32;
 		}
@@ -512,12 +527,16 @@ public class DfsGarbageCollectorTest {
 		long inputPacksSize = 32;
 		for (DfsPackFile pack : odb.getPacks()) {
 			DfsPackDescription d = pack.getPackDescription();
-			if (d.getPackSource() == GC_REST) {
+			switch (d.getPackSource()) {
+			case GC_REST:
 				gcRestPackFound = true;
-			} else if (d.getPackSource() == INSERT) {
+				break;
+			case INSERT:
 				insertPackFound = true;
-			} else {
+				break;
+			default:
 				fail("unexpected " + d.getPackSource());
+				break;
 			}
 			inputPacksSize += d.getFileSize(PACK) - 32;
 		}
@@ -555,17 +574,22 @@ public class DfsGarbageCollectorTest {
 		long insertPackSize = 0;
 		for (DfsPackFile pack : odb.getPacks()) {
 			DfsPackDescription d = pack.getPackDescription();
-			if (d.getPackSource() == GC) {
+			switch (d.getPackSource()) {
+			case GC:
 				gcPackFound = true;
 				gcPackSize = d.getFileSize(PACK);
-			} else if (d.getPackSource() == GC_REST) {
+				break;
+			case GC_REST:
 				gcRestPackFound = true;
 				gcRestPackSize = d.getFileSize(PACK);
-			} else if (d.getPackSource() == INSERT) {
+				break;
+			case INSERT:
 				insertPackFound = true;
 				insertPackSize = d.getFileSize(PACK);
-			} else {
+				break;
+			default:
 				fail("unexpected " + d.getPackSource());
+				break;
 			}
 		}
 		assertTrue(gcPackFound);
@@ -583,16 +607,20 @@ public class DfsGarbageCollectorTest {
 		gcRestPackFound = false;
 		for (DfsPackFile pack : odb.getPacks()) {
 			DfsPackDescription d = pack.getPackDescription();
-			if (d.getPackSource() == GC) {
+			switch (d.getPackSource()) {
+			case GC:
 				gcPackFound = true;
 				assertEquals(gcPackSize + insertPackSize - 32,
 						pack.getPackDescription().getEstimatedPackSize());
-			} else if (d.getPackSource() == GC_REST) {
+				break;
+			case GC_REST:
 				gcRestPackFound = true;
 				assertEquals(gcRestPackSize + insertPackSize - 32,
 						pack.getPackDescription().getEstimatedPackSize());
-			} else {
+				break;
+			default:
 				fail("unexpected " + d.getPackSource());
+				break;
 			}
 		}
 		assertTrue(gcPackFound);
@@ -629,18 +657,22 @@ public class DfsGarbageCollectorTest {
 		assertEquals(2, odb.getPacks().length);
 		for (DfsPackFile pack : odb.getPacks()) {
 			DfsPackDescription d = pack.getPackDescription();
-			if (d.getPackSource() == GC) {
+			switch (d.getPackSource()) {
+			case GC:
 				// Even though just commit0 will end up in GC pack, because
 				// there is no good way to know that up front, both the pack
 				// sizes are considered while computing the estimated size of GC
 				// pack.
 				assertEquals(packSize0 + packSize1 - 32,
 						d.getEstimatedPackSize());
-			} else if (d.getPackSource() == UNREACHABLE_GARBAGE) {
+				break;
+			case UNREACHABLE_GARBAGE:
 				// commit1 is moved to UNREACHABLE_GARBAGE pack.
 				assertEquals(packSize1, d.getEstimatedPackSize());
-			} else {
+				break;
+			default:
 				fail("unexpected " + d.getPackSource());
+				break;
 			}
 		}
 	}

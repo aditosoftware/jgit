@@ -1,61 +1,29 @@
 /*
- * Copyright (C) 2017, Google Inc.
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2017, Google Inc. and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.internal.storage.reftable;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.eclipse.jgit.lib.Constants.HEAD;
 import static org.eclipse.jgit.lib.Constants.OBJECT_ID_LENGTH;
 import static org.eclipse.jgit.lib.Constants.R_HEADS;
-import static org.eclipse.jgit.lib.MoreAsserts.assertThrows;
 import static org.eclipse.jgit.lib.Ref.Storage.NEW;
 import static org.eclipse.jgit.lib.Ref.Storage.PACKED;
 import static org.hamcrest.CoreMatchers.containsString;
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
-import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -82,8 +50,16 @@ import org.hamcrest.Matchers;
 import org.junit.Test;
 
 public class ReftableTest {
+	private static final byte[] LAST_UTF8_CHAR = new byte[] {
+			(byte)0x10,
+			(byte)0xFF,
+			(byte)0xFF};
+
 	private static final String MASTER = "refs/heads/master";
 	private static final String NEXT = "refs/heads/next";
+	private static final String AFTER_NEXT = "refs/heads/nextnext";
+	private static final String LAST = "refs/heads/nextnextnext";
+	private static final String NOT_REF_HEADS = "refs/zzz/zzz";
 	private static final String V1_0 = "refs/tags/v1.0";
 
 	private Stats stats;
@@ -149,12 +125,13 @@ public class ReftableTest {
 		assertEquals(expBytes, table.length);
 	}
 
-	@SuppressWarnings("boxing")
 	@Test
 	public void estimateCurrentBytesWithIndex() throws IOException {
 		List<Ref> refs = new ArrayList<>();
 		for (int i = 1; i <= 5670; i++) {
-			refs.add(ref(String.format("refs/heads/%04d", i), i));
+			@SuppressWarnings("boxing")
+			Ref ref = ref(String.format("refs/heads/%04d", i), i);
+			refs.add(ref);
 		}
 
 		ReftableConfig cfg = new ReftableConfig();
@@ -174,6 +151,69 @@ public class ReftableTest {
 		}
 		assertEquals(1, stats.refIndexLevels());
 		assertEquals(expBytes, table.length);
+	}
+
+	@Test
+	public void hasObjMapRefs() throws IOException {
+		ArrayList<Ref> refs = new ArrayList<>();
+		refs.add(ref(MASTER, 1));
+		byte[] table = write(refs);
+		ReftableReader t = read(table);
+		assertTrue(t.hasObjectMap());
+	}
+
+	@Test
+	public void hasObjMapRefsSmallTable() throws IOException {
+		ArrayList<Ref> refs = new ArrayList<>();
+		ReftableConfig cfg = new ReftableConfig();
+		cfg.setIndexObjects(false);
+		refs.add(ref(MASTER, 1));
+		byte[] table = write(refs);
+		ReftableReader t = read(table);
+		assertTrue(t.hasObjectMap());
+	}
+
+	@Test
+	public void hasObjLogs() throws IOException {
+		PersonIdent who = new PersonIdent("Log", "Ger", 1500079709, -8 * 60);
+		String msg = "test";
+		ReftableConfig cfg = new ReftableConfig();
+		cfg.setIndexObjects(false);
+
+		ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+		ReftableWriter writer = new ReftableWriter(buffer)
+			.setMinUpdateIndex(1)
+			.setConfig(cfg)
+			.setMaxUpdateIndex(1)
+			.begin();
+
+		writer.writeLog("master", 1, who, ObjectId.zeroId(), id(1), msg);
+		writer.finish();
+		byte[] table = buffer.toByteArray();
+
+		ReftableReader t = read(table);
+		assertTrue(t.hasObjectMap());
+	}
+
+	@Test
+	public void hasObjMapRefsNoIndexObjects() throws IOException {
+		ArrayList<Ref> refs = new ArrayList<>();
+		ReftableConfig cfg = new ReftableConfig();
+		cfg.setIndexObjects(false);
+		cfg.setRefBlockSize(256);
+		cfg.setAlignBlocks(true);
+
+		// Fill up 5 blocks.
+		int N = 256 * 5 / 25;
+		for (int i= 0; i < N; i++) {
+			@SuppressWarnings("boxing")
+			Ref ref = ref(String.format("%02d/xxxxxxxxxx", i), i);
+			refs.add(ref);
+		}
+		byte[] table = write(refs, cfg);
+
+		ReftableReader t = read(table);
+		assertFalse(t.hasObjectMap());
 	}
 
 	@Test
@@ -364,12 +404,142 @@ public class ReftableTest {
 		}
 	}
 
-	@SuppressWarnings("boxing")
+	@Test
+	public void seekPastRefWithRefCursor() throws IOException {
+		Ref exp = ref(MASTER, 1);
+		Ref next = ref(NEXT, 2);
+		Ref afterNext = ref(AFTER_NEXT, 3);
+		Ref afterNextNext = ref(LAST, 4);
+		ReftableReader t = read(write(exp, next, afterNext, afterNextNext));
+		try (RefCursor rc = t.seekRefsWithPrefix("")) {
+			assertTrue(rc.next());
+			assertEquals(MASTER, rc.getRef().getName());
+
+			rc.seekPastPrefix("refs/heads/next/");
+
+			assertTrue(rc.next());
+			assertEquals(AFTER_NEXT, rc.getRef().getName());
+			assertTrue(rc.next());
+			assertEquals(LAST, rc.getRef().getName());
+
+			assertFalse(rc.next());
+		}
+	}
+
+	@Test
+	public void seekPastToNonExistentPrefixToTheMiddle() throws IOException {
+		Ref exp = ref(MASTER, 1);
+		Ref next = ref(NEXT, 2);
+		Ref afterNext = ref(AFTER_NEXT, 3);
+		Ref afterNextNext = ref(LAST, 4);
+		ReftableReader t = read(write(exp, next, afterNext, afterNextNext));
+		try (RefCursor rc = t.seekRefsWithPrefix("")) {
+			rc.seekPastPrefix("refs/heads/master_non_existent");
+
+			assertTrue(rc.next());
+			assertEquals(NEXT, rc.getRef().getName());
+
+			assertTrue(rc.next());
+			assertEquals(AFTER_NEXT, rc.getRef().getName());
+
+			assertTrue(rc.next());
+			assertEquals(LAST, rc.getRef().getName());
+
+			assertFalse(rc.next());
+		}
+	}
+
+	@Test
+	public void seekPastToNonExistentPrefixToTheEnd() throws IOException {
+		Ref exp = ref(MASTER, 1);
+		Ref next = ref(NEXT, 2);
+		Ref afterNext = ref(AFTER_NEXT, 3);
+		Ref afterNextNext = ref(LAST, 4);
+		ReftableReader t = read(write(exp, next, afterNext, afterNextNext));
+		try (RefCursor rc = t.seekRefsWithPrefix("")) {
+			rc.seekPastPrefix("refs/heads/nextnon_existent_end");
+			assertFalse(rc.next());
+		}
+	}
+
+	@Test
+	public void seekPastWithSeekRefsWithPrefix() throws IOException {
+		Ref exp = ref(MASTER, 1);
+		Ref next = ref(NEXT, 2);
+		Ref afterNext = ref(AFTER_NEXT, 3);
+		Ref afterNextNext = ref(LAST, 4);
+		Ref notRefsHeads = ref(NOT_REF_HEADS, 5);
+		ReftableReader t = read(write(exp, next, afterNext, afterNextNext, notRefsHeads));
+		try (RefCursor rc = t.seekRefsWithPrefix("refs/heads/")) {
+			rc.seekPastPrefix("refs/heads/next/");
+			assertTrue(rc.next());
+			assertEquals(AFTER_NEXT, rc.getRef().getName());
+			assertTrue(rc.next());
+			assertEquals(LAST, rc.getRef().getName());
+
+			// NOT_REF_HEADS is next, but it's omitted because of
+			// seekRefsWithPrefix("refs/heads/").
+			assertFalse(rc.next());
+		}
+	}
+
+	@Test
+	public void seekPastWithLotsOfRefs() throws IOException {
+		Ref[] refs = new Ref[500];
+		for (int i = 1; i <= 500; i++) {
+			refs[i - 1] = ref(String.format("refs/%d", Integer.valueOf(i)), i);
+		}
+		ReftableReader t = read(write(refs));
+		try (RefCursor rc = t.allRefs()) {
+			rc.seekPastPrefix("refs/3");
+			assertTrue(rc.next());
+			assertEquals("refs/4", rc.getRef().getName());
+			assertTrue(rc.next());
+			assertEquals("refs/40", rc.getRef().getName());
+
+			rc.seekPastPrefix("refs/8");
+			assertTrue(rc.next());
+			assertEquals("refs/9", rc.getRef().getName());
+			assertTrue(rc.next());
+			assertEquals("refs/90", rc.getRef().getName());
+			assertTrue(rc.next());
+			assertEquals("refs/91", rc.getRef().getName());
+		}
+	}
+
+	@Test
+	public void seekPastManyTimes() throws IOException {
+		Ref exp = ref(MASTER, 1);
+		Ref next = ref(NEXT, 2);
+		Ref afterNext = ref(AFTER_NEXT, 3);
+		Ref afterNextNext = ref(LAST, 4);
+		ReftableReader t = read(write(exp, next, afterNext, afterNextNext));
+
+		try (RefCursor rc = t.seekRefsWithPrefix("")) {
+			rc.seekPastPrefix("refs/heads/master");
+			rc.seekPastPrefix("refs/heads/next");
+			rc.seekPastPrefix("refs/heads/nextnext");
+			rc.seekPastPrefix("refs/heads/nextnextnext");
+			assertFalse(rc.next());
+		}
+	}
+
+	@Test
+	public void seekPastOnEmptyTable() throws IOException {
+		ReftableReader t = read(write());
+		try (RefCursor rc = t.seekRefsWithPrefix("")) {
+			rc.seekPastPrefix("refs/");
+			assertFalse(rc.next());
+		}
+	}
+
 	@Test
 	public void indexScan() throws IOException {
 		List<Ref> refs = new ArrayList<>();
 		for (int i = 1; i <= 5670; i++) {
-			refs.add(ref(String.format("refs/heads/%04d", i), i));
+			@SuppressWarnings("boxing")
+			Ref ref = ref(String.format("refs/heads/%04d", i), i);
+			refs.add(ref);
 		}
 
 		byte[] table = write(refs);
@@ -378,12 +548,13 @@ public class ReftableTest {
 		assertScan(refs, read(table));
 	}
 
-	@SuppressWarnings("boxing")
 	@Test
 	public void indexSeek() throws IOException {
 		List<Ref> refs = new ArrayList<>();
 		for (int i = 1; i <= 5670; i++) {
-			refs.add(ref(String.format("refs/heads/%04d", i), i));
+			@SuppressWarnings("boxing")
+			Ref ref = ref(String.format("refs/heads/%04d", i), i);
+			refs.add(ref);
 		}
 
 		byte[] table = write(refs);
@@ -392,12 +563,13 @@ public class ReftableTest {
 		assertSeek(refs, read(table));
 	}
 
-	@SuppressWarnings("boxing")
 	@Test
 	public void noIndexScan() throws IOException {
 		List<Ref> refs = new ArrayList<>();
 		for (int i = 1; i <= 567; i++) {
-			refs.add(ref(String.format("refs/heads/%03d", i), i));
+			@SuppressWarnings("boxing")
+			Ref ref = ref(String.format("refs/heads/%03d", i), i);
+			refs.add(ref);
 		}
 
 		byte[] table = write(refs);
@@ -407,12 +579,13 @@ public class ReftableTest {
 		assertScan(refs, read(table));
 	}
 
-	@SuppressWarnings("boxing")
 	@Test
 	public void noIndexSeek() throws IOException {
 		List<Ref> refs = new ArrayList<>();
 		for (int i = 1; i <= 567; i++) {
-			refs.add(ref(String.format("refs/heads/%03d", i), i));
+			@SuppressWarnings("boxing")
+			Ref ref = ref(String.format("refs/heads/%03d", i), i);
+			refs.add(ref);
 		}
 
 		byte[] table = write(refs);
@@ -421,18 +594,20 @@ public class ReftableTest {
 	}
 
 	@Test
-	public void invalidRefWriteOrder() throws IOException {
+	public void invalidRefWriteOrderSortAndWrite() {
 		Ref master = ref(MASTER, 1);
-		Ref next = ref(NEXT, 2);
 		ReftableWriter writer = new ReftableWriter(new ByteArrayOutputStream())
 			.setMinUpdateIndex(1)
 			.setMaxUpdateIndex(1)
 			.begin();
 
-		writer.writeRef(next);
+		List<Ref> refs = new ArrayList<>();
+		refs.add(master);
+		refs.add(master);
+
 		IllegalArgumentException e  = assertThrows(
 			IllegalArgumentException.class,
-			() -> writer.writeRef(master));
+			() -> writer.sortAndWriteRefs(refs));
 		assertThat(e.getMessage(), containsString("records must be increasing"));
 	}
 
@@ -583,6 +758,7 @@ public class ReftableTest {
 		// Fill out the 1st ref block.
 		List<String> names = new ArrayList<>();
 		for (int i = 0; i < 4; i++) {
+			@SuppressWarnings("boxing")
 			String name = new String(new char[220]).replace("\0", String.format("%c", i + 'a'));
 			names.add(name);
 			writer.writeRef(ref(name, i));
@@ -722,7 +898,6 @@ public class ReftableTest {
 		}
 	}
 
-	@SuppressWarnings("boxing")
 	@Test
 	public void logScan() throws IOException {
 		ReftableConfig cfg = new ReftableConfig();
@@ -735,6 +910,7 @@ public class ReftableTest {
 
 		List<Ref> refs = new ArrayList<>();
 		for (int i = 1; i <= 5670; i++) {
+			@SuppressWarnings("boxing")
 			Ref ref = ref(String.format("refs/heads/%04d", i), i);
 			refs.add(ref);
 			writer.writeRef(ref);
@@ -767,12 +943,13 @@ public class ReftableTest {
 		}
 	}
 
-	@SuppressWarnings("boxing")
 	@Test
 	public void byObjectIdOneRefNoIndex() throws IOException {
 		List<Ref> refs = new ArrayList<>();
 		for (int i = 1; i <= 200; i++) {
-			refs.add(ref(String.format("refs/heads/%02d", i), i));
+			@SuppressWarnings("boxing")
+			Ref ref = ref(String.format("refs/heads/%02d", i), i);
+			refs.add(ref);
 		}
 		refs.add(ref("refs/heads/master", 100));
 
@@ -800,12 +977,13 @@ public class ReftableTest {
 		}
 	}
 
-	@SuppressWarnings("boxing")
 	@Test
 	public void byObjectIdOneRefWithIndex() throws IOException {
 		List<Ref> refs = new ArrayList<>();
 		for (int i = 1; i <= 5200; i++) {
-			refs.add(ref(String.format("refs/heads/%02d", i), i));
+			@SuppressWarnings("boxing")
+			Ref ref = ref(String.format("refs/heads/%02d", i), i);
+			refs.add(ref);
 		}
 		refs.add(ref("refs/heads/master", 100));
 
@@ -834,6 +1012,14 @@ public class ReftableTest {
 	}
 
 	@Test
+	public void byObjectIdSkipPastPrefix() throws IOException {
+		ReftableReader t = read(write());
+		try (RefCursor rc = t.byObjectId(id(2))) {
+			assertThrows(UnsupportedOperationException.class, () -> rc.seekPastPrefix("refs/heads/"));
+		}
+	}
+
+	@Test
 	public void unpeeledDoesNotWrite() {
 		try {
 			write(new ObjectIdRef.Unpeeled(PACKED, MASTER, id(1)));
@@ -842,6 +1028,18 @@ public class ReftableTest {
 			assertEquals(JGitText.get().peeledRefIsRequired, e.getMessage());
 		}
 	}
+
+	@Test
+	public void skipPastRefWithLastUTF8() throws IOException {
+		ReftableReader t = read(write(ref(String.format("refs/heads/%sbla", new String(LAST_UTF8_CHAR
+				, UTF_8)), 1)));
+
+		try (RefCursor rc = t.allRefs()) {
+			rc.seekPastPrefix("refs/heads/");
+			assertFalse(rc.next());
+		}
+	}
+
 
 	@Test
 	public void nameTooLongDoesNotWrite() throws IOException {
@@ -934,8 +1132,13 @@ public class ReftableTest {
 	}
 
 	private byte[] write(Collection<Ref> refs) throws IOException {
+		return write(refs, new ReftableConfig());
+	}
+
+	private byte[] write(Collection<Ref> refs, ReftableConfig cfg) throws IOException {
 		ByteArrayOutputStream buffer = new ByteArrayOutputStream();
 		stats = new ReftableWriter(buffer)
+				.setConfig(cfg)
 				.begin()
 				.sortAndWriteRefs(refs)
 				.finish()

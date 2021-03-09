@@ -1,47 +1,23 @@
 /*
- * Copyright (C) 2009, Google Inc.
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2009, Google Inc. and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.storage.file;
+
+import static org.eclipse.jgit.lib.ConfigConstants.CONFIG_CORE_SECTION;
+import static org.eclipse.jgit.lib.ConfigConstants.CONFIG_KEY_DELTA_BASE_CACHE_LIMIT;
+import static org.eclipse.jgit.lib.ConfigConstants.CONFIG_KEY_PACKED_GIT_LIMIT;
+import static org.eclipse.jgit.lib.ConfigConstants.CONFIG_KEY_PACKED_GIT_MMAP;
+import static org.eclipse.jgit.lib.ConfigConstants.CONFIG_KEY_PACKED_GIT_OPENFILES;
+import static org.eclipse.jgit.lib.ConfigConstants.CONFIG_KEY_PACKED_GIT_WINDOWSIZE;
+import static org.eclipse.jgit.lib.ConfigConstants.CONFIG_KEY_STREAM_FILE_TRESHOLD;
+import static org.eclipse.jgit.lib.ConfigConstants.CONFIG_KEY_PACKED_GIT_USE_STRONGREFS;
 
 import org.eclipse.jgit.internal.storage.file.WindowCache;
 import org.eclipse.jgit.lib.Config;
@@ -61,6 +37,8 @@ public class WindowCacheConfig {
 
 	private long packedGitLimit;
 
+	private boolean useStrongRefs;
+
 	private int packedGitWindowSize;
 
 	private boolean packedGitMMAP;
@@ -69,16 +47,20 @@ public class WindowCacheConfig {
 
 	private int streamFileThreshold;
 
+	private boolean exposeStats;
+
 	/**
 	 * Create a default configuration.
 	 */
 	public WindowCacheConfig() {
 		packedGitOpenFiles = 128;
 		packedGitLimit = 10 * MB;
+		useStrongRefs = false;
 		packedGitWindowSize = 8 * KB;
 		packedGitMMAP = false;
 		deltaBaseCacheLimit = 10 * MB;
 		streamFileThreshold = PackConfig.DEFAULT_BIG_FILE_THRESHOLD;
+		exposeStats = true;
 	}
 
 	/**
@@ -123,6 +105,31 @@ public class WindowCacheConfig {
 	 */
 	public void setPackedGitLimit(long newLimit) {
 		packedGitLimit = newLimit;
+	}
+
+	/**
+	 * Get whether the window cache should use strong references or
+	 * SoftReferences
+	 *
+	 * @return {@code true} if the window cache should use strong references,
+	 *         otherwise it will use {@link java.lang.ref.SoftReference}s
+	 * @since 5.1.13
+	 */
+	public boolean isPackedGitUseStrongRefs() {
+		return useStrongRefs;
+	}
+
+	/**
+	 * Set if the cache should use strong refs or soft refs
+	 *
+	 * @param useStrongRefs
+	 *            if @{code true} the cache strongly references cache pages
+	 *            otherwise it uses {@link java.lang.ref.SoftReference}s which
+	 *            can be evicted by the Java gc if heap is almost full
+	 * @since 5.1.13
+	 */
+	public void setPackedGitUseStrongRefs(boolean useStrongRefs) {
+		this.useStrongRefs = useStrongRefs;
 	}
 
 	/**
@@ -216,6 +223,39 @@ public class WindowCacheConfig {
 	}
 
 	/**
+	 * Tell whether the statistics JMX bean should be automatically registered.
+	 * <p>
+	 * Registration of that bean via JMX is additionally subject to a boolean
+	 * JGit-specific user config "jmx.WindowCacheStats". The bean will be
+	 * registered only if this user config is {@code true} <em>and</em>
+	 * {@code getExposeStatsViaJmx() == true}.
+	 * </p>
+	 * <p>
+	 * By default, this returns {@code true} unless changed via
+	 * {@link #setExposeStatsViaJmx(boolean)}.
+	 *
+	 * @return whether to expose WindowCacheStats statistics via JMX upon
+	 *         {@link #install()}
+	 * @since 5.8
+	 */
+	public boolean getExposeStatsViaJmx() {
+		return exposeStats;
+	}
+
+	/**
+	 * Defines whether the statistics JMX MBean should be automatically set up.
+	 * (By default {@code true}.) If set to {@code false}, the JMX monitoring
+	 * bean is not registered.
+	 *
+	 * @param expose
+	 *            whether to register the JMX Bean
+	 * @since 5.8
+	 */
+	public void setExposeStatsViaJmx(boolean expose) {
+		exposeStats = expose;
+	}
+
+	/**
 	 * Update properties by setting fields from the configuration.
 	 * <p>
 	 * If a property is not defined in the configuration, then it is left
@@ -227,20 +267,23 @@ public class WindowCacheConfig {
 	 * @since 3.0
 	 */
 	public WindowCacheConfig fromConfig(Config rc) {
-		setPackedGitOpenFiles(rc.getInt(
-				"core", null, "packedgitopenfiles", getPackedGitOpenFiles())); //$NON-NLS-1$ //$NON-NLS-2$
-		setPackedGitLimit(rc.getLong(
-				"core", null, "packedgitlimit", getPackedGitLimit())); //$NON-NLS-1$ //$NON-NLS-2$
-		setPackedGitWindowSize(rc.getInt(
-				"core", null, "packedgitwindowsize", getPackedGitWindowSize())); //$NON-NLS-1$ //$NON-NLS-2$
-		setPackedGitMMAP(rc.getBoolean(
-				"core", null, "packedgitmmap", isPackedGitMMAP())); //$NON-NLS-1$ //$NON-NLS-2$
-		setDeltaBaseCacheLimit(rc.getInt(
-				"core", null, "deltabasecachelimit", getDeltaBaseCacheLimit())); //$NON-NLS-1$ //$NON-NLS-2$
+		setPackedGitUseStrongRefs(rc.getBoolean(CONFIG_CORE_SECTION,
+				CONFIG_KEY_PACKED_GIT_USE_STRONGREFS,
+				isPackedGitUseStrongRefs()));
+		setPackedGitOpenFiles(rc.getInt(CONFIG_CORE_SECTION, null,
+				CONFIG_KEY_PACKED_GIT_OPENFILES, getPackedGitOpenFiles()));
+		setPackedGitLimit(rc.getLong(CONFIG_CORE_SECTION, null,
+				CONFIG_KEY_PACKED_GIT_LIMIT, getPackedGitLimit()));
+		setPackedGitWindowSize(rc.getInt(CONFIG_CORE_SECTION, null,
+				CONFIG_KEY_PACKED_GIT_WINDOWSIZE, getPackedGitWindowSize()));
+		setPackedGitMMAP(rc.getBoolean(CONFIG_CORE_SECTION, null,
+				CONFIG_KEY_PACKED_GIT_MMAP, isPackedGitMMAP()));
+		setDeltaBaseCacheLimit(rc.getInt(CONFIG_CORE_SECTION, null,
+				CONFIG_KEY_DELTA_BASE_CACHE_LIMIT, getDeltaBaseCacheLimit()));
 
 		long maxMem = Runtime.getRuntime().maxMemory();
-		long sft = rc.getLong(
-				"core", null, "streamfilethreshold", getStreamFileThreshold()); //$NON-NLS-1$ //$NON-NLS-2$
+		long sft = rc.getLong(CONFIG_CORE_SECTION, null,
+				CONFIG_KEY_STREAM_FILE_TRESHOLD, getStreamFileThreshold());
 		sft = Math.min(sft, maxMem / 4); // don't use more than 1/4 of the heap
 		sft = Math.min(sft, Integer.MAX_VALUE); // cannot exceed array length
 		setStreamFileThreshold((int) sft);

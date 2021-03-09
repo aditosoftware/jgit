@@ -3,46 +3,13 @@
  * Copyright (C) 2010-2012, Matthias Sohn <matthias.sohn@sap.com>
  * Copyright (C) 2012, Research In Motion Limited
  * Copyright (C) 2017, Obeo (mathieu.cartaud@obeo.fr)
- * Copyright (C) 2018, Thomas Wolf <thomas.wolf@paranor.ch>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2018, Thomas Wolf <thomas.wolf@paranor.ch> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 package org.eclipse.jgit.merge;
 
@@ -143,7 +110,7 @@ public class ResolveMerger extends ThreeWayMerger {
 	 *
 	 * @since 3.0
 	 */
-	protected String commitNames[];
+	protected String[] commitNames;
 
 	/**
 	 * Index of the base tree within the {@link #tw tree walk}.
@@ -621,7 +588,8 @@ public class ResolveMerger extends ThreeWayMerger {
 		final int modeO = tw.getRawMode(T_OURS);
 		final int modeT = tw.getRawMode(T_THEIRS);
 		final int modeB = tw.getRawMode(T_BASE);
-
+		boolean gitLinkMerging = isGitLink(modeO) || isGitLink(modeT)
+				|| isGitLink(modeB);
 		if (modeO == 0 && modeT == 0 && modeB == 0)
 			// File is either untracked or new, staged but uncommitted
 			return true;
@@ -652,42 +620,40 @@ public class ResolveMerger extends ThreeWayMerger {
 				keep(ourDce);
 				// no checkout needed!
 				return true;
-			} else {
-				// same content but different mode on OURS and THEIRS.
-				// Try to merge the mode and report an error if this is
-				// not possible.
-				int newMode = mergeFileModes(modeB, modeO, modeT);
-				if (newMode != FileMode.MISSING.getBits()) {
-					if (newMode == modeO)
-						// ours version is preferred
-						keep(ourDce);
-					else {
-						// the preferred version THEIRS has a different mode
-						// than ours. Check it out!
-						if (isWorktreeDirty(work, ourDce))
-							return false;
-						// we know about length and lastMod only after we have written the new content.
-						// This will happen later. Set these values to 0 for know.
-						DirCacheEntry e = add(tw.getRawPath(), theirs,
-								DirCacheEntry.STAGE_0, EPOCH, 0);
-						addToCheckout(tw.getPathString(), e, attributes);
-					}
-					return true;
+			}
+			// same content but different mode on OURS and THEIRS.
+			// Try to merge the mode and report an error if this is
+			// not possible.
+			int newMode = mergeFileModes(modeB, modeO, modeT);
+			if (newMode != FileMode.MISSING.getBits()) {
+				if (newMode == modeO) {
+					// ours version is preferred
+					keep(ourDce);
 				} else {
-					// FileModes are not mergeable. We found a conflict on modes.
-					// For conflicting entries we don't know lastModified and length.
-					add(tw.getRawPath(), base, DirCacheEntry.STAGE_1, EPOCH, 0);
-					add(tw.getRawPath(), ours, DirCacheEntry.STAGE_2, EPOCH, 0);
-					add(tw.getRawPath(), theirs, DirCacheEntry.STAGE_3, EPOCH,
-							0);
-					unmergedPaths.add(tw.getPathString());
-					mergeResults.put(
-							tw.getPathString(),
-							new MergeResult<>(Collections
-									.<RawText> emptyList()));
+					// the preferred version THEIRS has a different mode
+					// than ours. Check it out!
+					if (isWorktreeDirty(work, ourDce)) {
+						return false;
+					}
+					// we know about length and lastMod only after we have
+					// written the new content.
+					// This will happen later. Set these values to 0 for know.
+					DirCacheEntry e = add(tw.getRawPath(), theirs,
+							DirCacheEntry.STAGE_0, EPOCH, 0);
+					addToCheckout(tw.getPathString(), e, attributes);
 				}
 				return true;
 			}
+			// FileModes are not mergeable. We found a conflict on modes.
+			// For conflicting entries we don't know lastModified and
+			// length.
+			add(tw.getRawPath(), base, DirCacheEntry.STAGE_1, EPOCH, 0);
+			add(tw.getRawPath(), ours, DirCacheEntry.STAGE_2, EPOCH, 0);
+			add(tw.getRawPath(), theirs, DirCacheEntry.STAGE_3, EPOCH, 0);
+			unmergedPaths.add(tw.getPathString());
+			mergeResults.put(tw.getPathString(),
+					new MergeResult<>(Collections.<RawText> emptyList()));
+			return true;
 		}
 
 		if (modeB == modeT && tw.idEqual(T_BASE, T_THEIRS)) {
@@ -716,21 +682,20 @@ public class ResolveMerger extends ThreeWayMerger {
 					addToCheckout(tw.getPathString(), e, attributes);
 				}
 				return true;
-			} else {
-				// we want THEIRS ... but THEIRS contains a folder or the
-				// deletion of the path. Delete what's in the working tree,
-				// which we know to be clean.
-				if (tw.getTreeCount() > T_FILE && tw.getRawMode(T_FILE) == 0) {
-					// Not present in working tree, so nothing to delete
-					return true;
-				}
-				if (modeT != 0 && modeT == modeB) {
-					// Base, ours, and theirs all contain a folder: don't delete
-					return true;
-				}
-				addDeletion(tw.getPathString(), nonTree(modeO), attributes);
+			}
+			// we want THEIRS ... but THEIRS contains a folder or the
+			// deletion of the path. Delete what's in the working tree,
+			// which we know to be clean.
+			if (tw.getTreeCount() > T_FILE && tw.getRawMode(T_FILE) == 0) {
+				// Not present in working tree, so nothing to delete
 				return true;
 			}
+			if (modeT != 0 && modeT == modeB) {
+				// Base, ours, and theirs all contain a folder: don't delete
+				return true;
+			}
+			addDeletion(tw.getPathString(), nonTree(modeO), attributes);
+			return true;
 		}
 
 		if (tw.isSubtree()) {
@@ -738,18 +703,21 @@ public class ResolveMerger extends ThreeWayMerger {
 			// conflict between ours and theirs. file/folder conflicts between
 			// base/index/workingTree and something else are not relevant or
 			// detected later
-			if (nonTree(modeO) && !nonTree(modeT)) {
+			if (nonTree(modeO) != nonTree(modeT)) {
+				if (ignoreConflicts) {
+					// In case of merge failures, ignore this path instead of reporting unmerged, so
+					// a caller can use virtual commit. This will not result in files with conflict
+					// markers in the index/working tree. The actual diff on the path will be
+					// computed directly on children.
+					enterSubtree = false;
+					return true;
+				}
 				if (nonTree(modeB))
 					add(tw.getRawPath(), base, DirCacheEntry.STAGE_1, EPOCH, 0);
-				add(tw.getRawPath(), ours, DirCacheEntry.STAGE_2, EPOCH, 0);
-				unmergedPaths.add(tw.getPathString());
-				enterSubtree = false;
-				return true;
-			}
-			if (nonTree(modeT) && !nonTree(modeO)) {
-				if (nonTree(modeB))
-					add(tw.getRawPath(), base, DirCacheEntry.STAGE_1, EPOCH, 0);
-				add(tw.getRawPath(), theirs, DirCacheEntry.STAGE_3, EPOCH, 0);
+				if (nonTree(modeO))
+					add(tw.getRawPath(), ours, DirCacheEntry.STAGE_2, EPOCH, 0);
+				if (nonTree(modeT))
+					add(tw.getRawPath(), theirs, DirCacheEntry.STAGE_3, EPOCH, 0);
 				unmergedPaths.add(tw.getPathString());
 				enterSubtree = false;
 				return true;
@@ -773,31 +741,28 @@ public class ResolveMerger extends ThreeWayMerger {
 				return false;
 			}
 
-			boolean gitlinkConflict = isGitLink(modeO) || isGitLink(modeT);
-			// Don't attempt to resolve submodule link conflicts
-			if (gitlinkConflict || !attributes.canBeContentMerged()) {
+			if (gitLinkMerging && ignoreConflicts) {
+				// Always select 'ours' in case of GITLINK merge failures so
+				// a caller can use virtual commit.
+				add(tw.getRawPath(), ours, DirCacheEntry.STAGE_0, EPOCH, 0);
+				return true;
+			} else if (gitLinkMerging) {
+				add(tw.getRawPath(), base, DirCacheEntry.STAGE_1, EPOCH, 0);
+				add(tw.getRawPath(), ours, DirCacheEntry.STAGE_2, EPOCH, 0);
+				add(tw.getRawPath(), theirs, DirCacheEntry.STAGE_3, EPOCH, 0);
+				MergeResult<SubmoduleConflict> result = createGitLinksMergeResult(
+						base, ours, theirs);
+				result.setContainsConflicts(true);
+				mergeResults.put(tw.getPathString(), result);
+				unmergedPaths.add(tw.getPathString());
+				return true;
+			} else if (!attributes.canBeContentMerged()) {
 				add(tw.getRawPath(), base, DirCacheEntry.STAGE_1, EPOCH, 0);
 				add(tw.getRawPath(), ours, DirCacheEntry.STAGE_2, EPOCH, 0);
 				add(tw.getRawPath(), theirs, DirCacheEntry.STAGE_3, EPOCH, 0);
 
-				if (gitlinkConflict) {
-					MergeResult<SubmoduleConflict> result = new MergeResult<>(
-							Arrays.asList(
-									new SubmoduleConflict(base == null ? null
-											: base.getEntryObjectId()),
-									new SubmoduleConflict(ours == null ? null
-											: ours.getEntryObjectId()),
-									new SubmoduleConflict(theirs == null ? null
-											: theirs.getEntryObjectId())));
-					result.setContainsConflicts(true);
-					mergeResults.put(tw.getPathString(), result);
-					if (!ignoreConflicts) {
-						unmergedPaths.add(tw.getPathString());
-					}
-				} else {
-					// attribute merge issues are conflicts but not failures
-					unmergedPaths.add(tw.getPathString());
-				}
+				// attribute merge issues are conflicts but not failures
+				unmergedPaths.add(tw.getPathString());
 				return true;
 			}
 
@@ -822,33 +787,71 @@ public class ResolveMerger extends ThreeWayMerger {
 			// OURS or THEIRS has been deleted
 			if (((modeO != 0 && !tw.idEqual(T_BASE, T_OURS)) || (modeT != 0 && !tw
 					.idEqual(T_BASE, T_THEIRS)))) {
-				MergeResult<RawText> result = contentMerge(base, ours, theirs,
-						attributes);
+				if (gitLinkMerging && ignoreConflicts) {
+					add(tw.getRawPath(), ours, DirCacheEntry.STAGE_0, EPOCH, 0);
+				} else if (gitLinkMerging) {
+					add(tw.getRawPath(), base, DirCacheEntry.STAGE_1, EPOCH, 0);
+					add(tw.getRawPath(), ours, DirCacheEntry.STAGE_2, EPOCH, 0);
+					add(tw.getRawPath(), theirs, DirCacheEntry.STAGE_3, EPOCH, 0);
+					MergeResult<SubmoduleConflict> result = createGitLinksMergeResult(
+							base, ours, theirs);
+					result.setContainsConflicts(true);
+					mergeResults.put(tw.getPathString(), result);
+					unmergedPaths.add(tw.getPathString());
+				} else {
+					MergeResult<RawText> result = contentMerge(base, ours,
+							theirs, attributes);
 
-				add(tw.getRawPath(), base, DirCacheEntry.STAGE_1, EPOCH, 0);
-				add(tw.getRawPath(), ours, DirCacheEntry.STAGE_2, EPOCH, 0);
-				DirCacheEntry e = add(tw.getRawPath(), theirs,
-						DirCacheEntry.STAGE_3, EPOCH, 0);
+					if (ignoreConflicts) {
+						// In case a conflict is detected the working tree file
+						// is again filled with new content (containing conflict
+						// markers). But also stage 0 of the index is filled
+						// with that content.
+						result.setContainsConflicts(false);
+						updateIndex(base, ours, theirs, result, attributes);
+					} else {
+						add(tw.getRawPath(), base, DirCacheEntry.STAGE_1, EPOCH,
+								0);
+						add(tw.getRawPath(), ours, DirCacheEntry.STAGE_2, EPOCH,
+								0);
+						DirCacheEntry e = add(tw.getRawPath(), theirs,
+								DirCacheEntry.STAGE_3, EPOCH, 0);
 
-				// OURS was deleted checkout THEIRS
-				if (modeO == 0) {
-					// Check worktree before checking out THEIRS
-					if (isWorktreeDirty(work, ourDce))
-						return false;
-					if (nonTree(modeT)) {
-						if (e != null) {
-							addToCheckout(tw.getPathString(), e, attributes);
+						// OURS was deleted checkout THEIRS
+						if (modeO == 0) {
+							// Check worktree before checking out THEIRS
+							if (isWorktreeDirty(work, ourDce)) {
+								return false;
+							}
+							if (nonTree(modeT)) {
+								if (e != null) {
+									addToCheckout(tw.getPathString(), e,
+											attributes);
+								}
+							}
 						}
+
+						unmergedPaths.add(tw.getPathString());
+
+						// generate a MergeResult for the deleted file
+						mergeResults.put(tw.getPathString(), result);
 					}
 				}
-
-				unmergedPaths.add(tw.getPathString());
-
-				// generate a MergeResult for the deleted file
-				mergeResults.put(tw.getPathString(), result);
 			}
 		}
 		return true;
+	}
+
+	private static MergeResult<SubmoduleConflict> createGitLinksMergeResult(
+			CanonicalTreeParser base, CanonicalTreeParser ours,
+			CanonicalTreeParser theirs) {
+		return new MergeResult<>(Arrays.asList(
+				new SubmoduleConflict(
+						base == null ? null : base.getEntryObjectId()),
+				new SubmoduleConflict(
+						ours == null ? null : ours.getEntryObjectId()),
+				new SubmoduleConflict(
+						theirs == null ? null : theirs.getEntryObjectId())));
 	}
 
 	/**
@@ -1310,10 +1313,9 @@ public class ResolveMerger extends ThreeWayMerger {
 		if (getUnmergedPaths().isEmpty() && !failed()) {
 			resultTree = dircache.writeTree(getObjectInserter());
 			return true;
-		} else {
-			resultTree = null;
-			return false;
 		}
+		resultTree = null;
+		return false;
 	}
 
 	/**

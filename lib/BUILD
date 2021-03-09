@@ -35,6 +35,7 @@ java_library(
     visibility = [
         "//org.eclipse.jgit.ssh.apache:__pkg__",
         "//org.eclipse.jgit.ssh.apache.test:__pkg__",
+        "//org.eclipse.jgit.ssh.jsch.test:__pkg__",
     ],
     exports = ["@eddsa//jar"],
 )
@@ -131,7 +132,10 @@ java_library(
     name = "jetty-servlet",
     # TODO: This should be testonly but org.eclipse.jgit.pgm depends on it.
     visibility = ["//visibility:public"],
-    exports = ["@jetty-servlet//jar"],
+    exports = [
+        "@jetty-servlet//jar",
+        "@jetty-util-ajax//jar",
+    ],
 )
 
 java_library(
@@ -145,7 +149,9 @@ java_library(
     name = "jsch",
     visibility = [
         "//org.eclipse.jgit:__pkg__",
-        "//org.eclipse.jgit.test:__pkg__",
+        "//org.eclipse.jgit.junit.ssh:__pkg__",
+        "//org.eclipse.jgit.ssh.jsch:__pkg__",
+        "//org.eclipse.jgit.ssh.jsch.test:__pkg__",
     ],
     exports = ["@jsch//jar"],
 )
@@ -154,7 +160,9 @@ java_library(
     name = "bcpg",
     visibility = [
         "//org.eclipse.jgit:__pkg__",
+        "//org.eclipse.jgit.gpg.bc:__pkg__",
         "//org.eclipse.jgit.test:__pkg__",
+        "//org.eclipse.jgit.gpg.bc.test:__pkg__",
     ],
     exports = ["@bcpg//jar"],
 )
@@ -163,7 +171,9 @@ java_library(
     name = "bcprov",
     visibility = [
         "//org.eclipse.jgit:__pkg__",
+        "//org.eclipse.jgit.gpg.bc:__pkg__",
         "//org.eclipse.jgit.test:__pkg__",
+        "//org.eclipse.jgit.gpg.bc.test:__pkg__",
     ],
     exports = ["@bcprov//jar"],
 )
@@ -172,6 +182,7 @@ java_library(
     name = "bcpkix",
     visibility = [
         "//org.eclipse.jgit:__pkg__",
+        "//org.eclipse.jgit.gpg.bc:__pkg__",
         "//org.eclipse.jgit.test:__pkg__",
     ],
     exports = ["@bcpkix//jar"],
@@ -181,6 +192,7 @@ java_library(
     name = "jzlib",
     visibility = [
         "//org.eclipse.jgit:__pkg__",
+        "//org.eclipse.jgit.ssh.jsch:__pkg__",
         "//org.eclipse.jgit.test:__pkg__",
     ],
     exports = ["@jzlib//jar"],
@@ -210,6 +222,15 @@ java_library(
         "@bytebuddy//jar",
         "@mockito//jar",
         "@objenesis//jar",
+    ],
+)
+
+java_library(
+    name = "assertj-core",
+    testonly = 1,
+    visibility = ["//visibility:public"],
+    exports = [
+        "@assertj-core//jar",
     ],
 )
 

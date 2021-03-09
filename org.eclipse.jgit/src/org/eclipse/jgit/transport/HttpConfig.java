@@ -1,45 +1,12 @@
 /*
  * Copyright (C) 2008, 2010, Google Inc.
- * Copyright (C) 2017, Thomas Wolf <thomas.wolf@paranor.ch>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2017, Thomas Wolf <thomas.wolf@paranor.ch> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.transport;
@@ -47,9 +14,13 @@ package org.eclipse.jgit.transport;
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.text.MessageFormat;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.Set;
 import java.util.function.Supplier;
 
+import org.eclipse.jgit.annotations.NonNull;
 import org.eclipse.jgit.errors.ConfigInvalidException;
 import org.eclipse.jgit.internal.JGitText;
 import org.eclipse.jgit.lib.Config;
@@ -87,6 +58,20 @@ public class HttpConfig {
 
 	/** git config key for the "sslVerify" setting. */
 	public static final String SSL_VERIFY_KEY = "sslVerify"; //$NON-NLS-1$
+
+	/**
+	 * git config key for the "userAgent" setting.
+	 *
+	 * @since 5.10
+	 */
+	public static final String USER_AGENT = "userAgent"; //$NON-NLS-1$
+
+	/**
+	 * git config key for the "extraHeader" setting.
+	 *
+	 * @since 5.10
+	 */
+	public static final String EXTRA_HEADER = "extraHeader"; //$NON-NLS-1$
 
 	/**
 	 * git config key for the "cookieFile" setting.
@@ -136,6 +121,8 @@ public class HttpConfig {
 		}
 	}).get().intValue();
 
+	private static final String ENV_HTTP_USER_AGENT = "GIT_HTTP_USER_AGENT"; //$NON-NLS-1$
+
 	/**
 	 * Config values for http.followRedirect.
 	 */
@@ -175,6 +162,10 @@ public class HttpConfig {
 	private HttpRedirectMode followRedirects;
 
 	private int maxRedirects;
+
+	private String userAgent;
+
+	private List<String> extraHeaders;
 
 	private String cookieFile;
 
@@ -216,6 +207,27 @@ public class HttpConfig {
 	 */
 	public int getMaxRedirects() {
 		return maxRedirects;
+	}
+
+	/**
+	 * Get the "http.userAgent" setting
+	 *
+	 * @return the value of the "http.userAgent" setting
+	 * @since 5.10
+	 */
+	public String getUserAgent() {
+		return userAgent;
+	}
+
+	/**
+	 * Get the "http.extraHeader" setting
+	 *
+	 * @return the value of the "http.extraHeader" setting
+	 * @since 5.10
+	 */
+	@NonNull
+	public List<String> getExtraHeaders() {
+		return extraHeaders == null ? Collections.emptyList() : extraHeaders;
 	}
 
 	/**
@@ -298,11 +310,25 @@ public class HttpConfig {
 		if (redirectLimit < 0) {
 			redirectLimit = MAX_REDIRECTS;
 		}
+		String agent = config.getString(HTTP, null, USER_AGENT);
+		if (agent != null) {
+			agent = UserAgent.clean(agent);
+		}
+		userAgent = agent;
+		String[] headers = config.getStringList(HTTP, null, EXTRA_HEADER);
+		// https://git-scm.com/docs/git-config#Documentation/git-config.txt-httpextraHeader
+		// "an empty value will reset the extra headers to the empty list."
+		int start = findLastEmpty(headers) + 1;
+		if (start > 0) {
+			headers = Arrays.copyOfRange(headers, start, headers.length);
+		}
+		extraHeaders = Arrays.asList(headers);
 		cookieFile = config.getString(HTTP, null, COOKIE_FILE_KEY);
 		saveCookies = config.getBoolean(HTTP, SAVE_COOKIES_KEY, false);
 		cookieFileCacheLimit = config.getInt(HTTP, COOKIE_FILE_CACHE_LIMIT_KEY,
 				DEFAULT_COOKIE_FILE_CACHE_LIMIT);
 		String match = findMatch(config.getSubsections(HTTP), uri);
+
 		if (match != null) {
 			// Override with more specific items
 			postBufferSize = config.getInt(HTTP, match, POST_BUFFER_KEY,
@@ -316,6 +342,22 @@ public class HttpConfig {
 			if (newMaxRedirects >= 0) {
 				redirectLimit = newMaxRedirects;
 			}
+			String uriSpecificUserAgent = config.getString(HTTP, match,
+					USER_AGENT);
+			if (uriSpecificUserAgent != null) {
+				userAgent = UserAgent.clean(uriSpecificUserAgent);
+			}
+			String[] uriSpecificExtraHeaders = config.getStringList(HTTP, match,
+					EXTRA_HEADER);
+			if (uriSpecificExtraHeaders.length > 0) {
+				start = findLastEmpty(uriSpecificExtraHeaders) + 1;
+				if (start > 0) {
+					uriSpecificExtraHeaders = Arrays.copyOfRange(
+							uriSpecificExtraHeaders, start,
+							uriSpecificExtraHeaders.length);
+				}
+				extraHeaders = Arrays.asList(uriSpecificExtraHeaders);
+			}
 			String urlSpecificCookieFile = config.getString(HTTP, match,
 					COOKIE_FILE_KEY);
 			if (urlSpecificCookieFile != null) {
@@ -324,10 +366,24 @@ public class HttpConfig {
 			saveCookies = config.getBoolean(HTTP, match, SAVE_COOKIES_KEY,
 					saveCookies);
 		}
+		// Environment overrides config
+		agent = SystemReader.getInstance().getenv(ENV_HTTP_USER_AGENT);
+		if (!StringUtils.isEmptyOrNull(agent)) {
+			userAgent = UserAgent.clean(agent);
+		}
 		postBuffer = postBufferSize;
 		sslVerify = sslVerifyFlag;
 		followRedirects = followRedirectsMode;
 		maxRedirects = redirectLimit;
+	}
+
+	private int findLastEmpty(String[] values) {
+		for (int i = values.length - 1; i >= 0; i--) {
+			if (values[i] == null) {
+				return i;
+			}
+		}
+		return -1;
 	}
 
 	/**

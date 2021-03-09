@@ -1,46 +1,13 @@
 /*
- * Copyright (C) 2008-2009, Google Inc.
+ * Copyright (C) 2008, 2009, Google Inc.
  * Copyright (C) 2008, Marek Zawirski <marek.zawirski@gmail.com>
- * Copyright (C) 2008, Shawn O. Pearce <spearce@spearce.org>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2008, 2021, Shawn O. Pearce <spearce@spearce.org> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.revwalk;
@@ -51,7 +18,9 @@ import java.io.IOException;
 import java.nio.charset.Charset;
 import java.nio.charset.IllegalCharsetNameException;
 import java.nio.charset.UnsupportedCharsetException;
+import java.util.Arrays;
 
+import org.eclipse.jgit.annotations.Nullable;
 import org.eclipse.jgit.errors.CorruptObjectException;
 import org.eclipse.jgit.errors.IncorrectObjectTypeException;
 import org.eclipse.jgit.errors.MissingObjectException;
@@ -68,6 +37,10 @@ import org.eclipse.jgit.util.StringUtils;
  * An annotated tag.
  */
 public class RevTag extends RevObject {
+
+	private static final byte[] hSignature = Constants
+			.encodeASCII("-----BEGIN PGP SIGNATURE-----"); //$NON-NLS-1$
+
 	/**
 	 * Parse an annotated tag from its canonical format.
 	 *
@@ -204,6 +177,71 @@ public class RevTag extends RevObject {
 		return RawParseUtils.parsePersonIdent(raw, nameB);
 	}
 
+	private static int nextStart(byte[] prefix, byte[] buffer, int from) {
+		int stop = buffer.length - prefix.length + 1;
+		int ptr = from;
+		if (ptr > 0) {
+			ptr = RawParseUtils.nextLF(buffer, ptr - 1);
+		}
+		while (ptr < stop) {
+			int lineStart = ptr;
+			boolean found = true;
+			for (byte element : prefix) {
+				if (element != buffer[ptr++]) {
+					found = false;
+					break;
+				}
+			}
+			if (found) {
+				return lineStart;
+			}
+			do {
+				ptr = RawParseUtils.nextLF(buffer, ptr);
+			} while (ptr < stop && buffer[ptr] == '\n');
+		}
+		return -1;
+	}
+
+	private int getSignatureStart() {
+		byte[] raw = buffer;
+		int msgB = RawParseUtils.tagMessage(raw, 0);
+		if (msgB < 0) {
+			return msgB;
+		}
+		// Find the last signature start and return the rest
+		int start = nextStart(hSignature, raw, msgB);
+		if (start < 0) {
+			return start;
+		}
+		int next = RawParseUtils.nextLF(raw, start);
+		while (next < raw.length) {
+			int newStart = nextStart(hSignature, raw, next);
+			if (newStart < 0) {
+				break;
+			}
+			start = newStart;
+			next = RawParseUtils.nextLF(raw, start);
+		}
+		return start;
+	}
+
+	/**
+	 * Parse the GPG signature from the raw buffer.
+	 *
+	 * @return contents of the GPG signature; {@code null} if the tag was not
+	 *         signed.
+	 * @since 5.11
+	 */
+	@Nullable
+	public final byte[] getRawGpgSignature() {
+		byte[] raw = buffer;
+		int start = getSignatureStart();
+		if (start < 0) {
+			return null;
+		}
+		return Arrays.copyOfRange(raw, start, raw.length);
+	}
+
 	/**
 	 * Parse the complete tag message and decode it to a string.
 	 * <p>
@@ -220,7 +258,12 @@ public class RevTag extends RevObject {
 		if (msgB < 0) {
 			return ""; //$NON-NLS-1$
 		}
-		return RawParseUtils.decode(guessEncoding(), raw, msgB, raw.length);
+		int signatureStart = getSignatureStart();
+		int end = signatureStart < 0 ? raw.length : signatureStart;
+		if (end == msgB) {
+			return ""; //$NON-NLS-1$
+		}
+		return RawParseUtils.decode(guessEncoding(), raw, msgB, end);
 	}
 
 	/**
@@ -246,6 +289,16 @@ public class RevTag extends RevObject {
 		}
 
 		int msgE = RawParseUtils.endOfParagraph(raw, msgB);
+		int signatureStart = getSignatureStart();
+		if (signatureStart >= msgB && msgE > signatureStart) {
+			msgE = signatureStart;
+			if (msgE > msgB) {
+				msgE--;
+			}
+			if (msgB == msgE) {
+				return ""; //$NON-NLS-1$
+			}
+		}
 		String str = RawParseUtils.decode(guessEncoding(), raw, msgB, msgE);
 		if (RevCommit.hasLF(raw, msgB, msgE)) {
 			str = StringUtils.replaceLineBreaksWithSpace(str);
@@ -288,6 +341,22 @@ public class RevTag extends RevObject {
 	 */
 	public final String getTagName() {
 		return tagName;
+	}
+
+	/**
+	 * Obtain the raw unparsed tag body (<b>NOTE - THIS IS NOT A COPY</b>).
+	 * <p>
+	 * This method is exposed only to provide very fast, efficient access to
+	 * this tag's message buffer. Applications relying on this buffer should be
+	 * very careful to ensure they do not modify its contents during their use
+	 * of it.
+	 *
+	 * @return the raw unparsed tag body. This is <b>NOT A COPY</b>. Do not
+	 *         alter the returned array.
+	 * @since 5.11
+	 */
+	public final byte[] getRawBuffer() {
+		return buffer;
 	}
 
 	/**

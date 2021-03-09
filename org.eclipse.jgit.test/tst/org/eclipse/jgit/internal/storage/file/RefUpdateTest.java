@@ -1,53 +1,23 @@
 /*
  * Copyright (C) 2008, Charles O'Farrell <charleso@charleso.org>
  * Copyright (C) 2009-2010, Google Inc.
- * Copyright (C) 2008-2013, Robin Rosenberg <robin.rosenberg@dewire.com>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2008-2013, Robin Rosenberg <robin.rosenberg@dewire.com> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.internal.storage.file;
 
-import static org.eclipse.jgit.junit.Assert.assertEquals;
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.eclipse.jgit.junit.Assert.assertEquals;
 import static org.eclipse.jgit.lib.Constants.LOCK_SUFFIX;
+import static org.eclipse.jgit.lib.RefUpdate.Result.FORCED;
+import static org.eclipse.jgit.lib.RefUpdate.Result.IO_FAILURE;
+import static org.eclipse.jgit.lib.RefUpdate.Result.LOCK_FAILURE;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -82,7 +52,6 @@ import org.eclipse.jgit.test.resources.SampleDataRepositoryTestCase;
 import org.junit.Test;
 
 public class RefUpdateTest extends SampleDataRepositoryTestCase {
-
 	private void writeSymref(String src, String dst) throws IOException {
 		RefUpdate u = db.updateRef(src);
 		switch (u.link(dst)) {
@@ -233,6 +202,17 @@ public class RefUpdateTest extends SampleDataRepositoryTestCase {
 	}
 
 	@Test
+	public void testWriteReflog() throws IOException {
+		ObjectId pid = db.resolve("refs/heads/master^");
+		RefUpdate updateRef = db.updateRef("refs/heads/master");
+		updateRef.setNewObjectId(pid);
+		updateRef.setForceUpdate(true);
+		Result update = updateRef.update();
+		assertEquals(Result.FORCED, update);
+		assertEquals(1,db.getReflogReader("refs/heads/master").getReverseEntries().size());
+	}
+
+	@Test
 	public void testLooseDelete() throws IOException {
 		final String newRef = "refs/heads/abc";
 		RefUpdate ref = updateRef(newRef);
@@ -379,6 +359,8 @@ public class RefUpdateTest extends SampleDataRepositoryTestCase {
 		refUpdate.setNewObjectId(ObjectId.zeroId());
 		Result updateResult = refUpdate.update();
 		assertEquals(Result.FORCED, updateResult);
+
+		assertEquals(ObjectId.zeroId(), db.exactRef("HEAD").getObjectId());
 		Result deleteHeadResult = db.updateRef(Constants.HEAD).delete();
 		assertEquals(Result.NO_CHANGE, deleteHeadResult);
 
@@ -900,6 +882,45 @@ public class RefUpdateTest extends SampleDataRepositoryTestCase {
 			throws IOException {
 		tryRenameWhenLocked("refs/heads/new/name", "refs/heads/b",
 				"refs/heads/new/name", "refs/heads/a");
+	}
+
+	@Test
+	public void testUpdateChecksOldValue() throws Exception {
+		ObjectId cur = db.resolve("master");
+		ObjectId prev = db.resolve("master^");
+		RefUpdate u1 = db.updateRef("refs/heads/master");
+		RefUpdate u2 = db.updateRef("refs/heads/master");
+
+		u1.setExpectedOldObjectId(cur);
+		u1.setNewObjectId(prev);
+		u1.setForceUpdate(true);
+
+		u2.setExpectedOldObjectId(cur);
+		u2.setNewObjectId(prev);
+		u2.setForceUpdate(true);
+
+		assertEquals(FORCED, u1.update());
+		assertEquals(LOCK_FAILURE, u2.update());
+	}
+
+	@Test
+	public void testRenameAtomic() throws IOException {
+		ObjectId prevId = db.resolve("refs/heads/master^");
+
+		RefRename rename = db.renameRef("refs/heads/master", "refs/heads/newmaster");
+
+		RefUpdate updateRef = db.updateRef("refs/heads/master");
+		updateRef.setNewObjectId(prevId);
+		updateRef.setForceUpdate(true);
+		assertEquals(FORCED, updateRef.update());
+		assertEquals(RefUpdate.Result.LOCK_FAILURE, rename.rename());
+	}
+
+	@Test
+	public void testRenameSymref() throws IOException {
+		db.resolve("HEAD");
+		RefRename r = db.renameRef("HEAD", "KOPF");
+		assertEquals(IO_FAILURE, r.rename());
 	}
 
 	@Test

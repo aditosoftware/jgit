@@ -1,45 +1,12 @@
 /*
  * Copyright (C) 2010, Stefan Lay <stefan.lay@sap.com>
- * Copyright (C) 2010, Christian Halstrick <christian.halstrick@sap.com>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2010, Christian Halstrick <christian.halstrick@sap.com> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 package org.eclipse.jgit.api;
 
@@ -700,26 +667,26 @@ public class AddCommandTest extends RepositoryTestCase {
 			writer.print("content b");
 		}
 
-		ObjectInserter newObjectInserter = db.newObjectInserter();
 		DirCache dc = db.lockDirCache();
-		DirCacheBuilder builder = dc.builder();
+		try (ObjectInserter newObjectInserter = db.newObjectInserter()) {
+			DirCacheBuilder builder = dc.builder();
 
-		addEntryToBuilder("b.txt", file2, newObjectInserter, builder, 0);
-		addEntryToBuilder("a.txt", file, newObjectInserter, builder, 1);
+			addEntryToBuilder("b.txt", file2, newObjectInserter, builder, 0);
+			addEntryToBuilder("a.txt", file, newObjectInserter, builder, 1);
 
-		try (PrintWriter writer = new PrintWriter(file, UTF_8.name())) {
-			writer.print("other content");
+			try (PrintWriter writer = new PrintWriter(file, UTF_8.name())) {
+				writer.print("other content");
+			}
+			addEntryToBuilder("a.txt", file, newObjectInserter, builder, 3);
+
+			try (PrintWriter writer = new PrintWriter(file, UTF_8.name())) {
+				writer.print("our content");
+			}
+			addEntryToBuilder("a.txt", file, newObjectInserter, builder, 2)
+					.getObjectId();
+
+			builder.commit();
 		}
-		addEntryToBuilder("a.txt", file, newObjectInserter, builder, 3);
-
-		try (PrintWriter writer = new PrintWriter(file, UTF_8.name())) {
-			writer.print("our content");
-		}
-		addEntryToBuilder("a.txt", file, newObjectInserter, builder, 2)
-				.getObjectId();
-
-		builder.commit();
-
 		assertEquals(
 				"[a.txt, mode:100644, stage:1, content:content]" +
 				"[a.txt, mode:100644, stage:2, content:our content]" +
@@ -1132,41 +1099,42 @@ public class AddCommandTest extends RepositoryTestCase {
 			}
 		};
 
-		Git git = Git.open(db.getDirectory(), executableFs);
 		String path = "a.txt";
 		String path2 = "a.sh";
 		writeTrashFile(path, "content");
 		writeTrashFile(path2, "binary: content");
-		git.add().addFilepattern(path).addFilepattern(path2).call();
-		RevCommit commit1 = git.commit().setMessage("commit").call();
-		try (TreeWalk walk = new TreeWalk(db)) {
-			walk.addTree(commit1.getTree());
-			walk.next();
-			assertEquals(path2, walk.getPathString());
-			assertEquals(FileMode.EXECUTABLE_FILE, walk.getFileMode(0));
-			walk.next();
-			assertEquals(path, walk.getPathString());
-			assertEquals(FileMode.REGULAR_FILE, walk.getFileMode(0));
+		try (Git git = Git.open(db.getDirectory(), executableFs)) {
+			git.add().addFilepattern(path).addFilepattern(path2).call();
+			RevCommit commit1 = git.commit().setMessage("commit").call();
+			try (TreeWalk walk = new TreeWalk(db)) {
+				walk.addTree(commit1.getTree());
+				walk.next();
+				assertEquals(path2, walk.getPathString());
+				assertEquals(FileMode.EXECUTABLE_FILE, walk.getFileMode(0));
+				walk.next();
+				assertEquals(path, walk.getPathString());
+				assertEquals(FileMode.REGULAR_FILE, walk.getFileMode(0));
+			}
 		}
-
 		config = db.getConfig();
 		config.setBoolean(ConfigConstants.CONFIG_CORE_SECTION, null,
 				ConfigConstants.CONFIG_KEY_FILEMODE, false);
 		config.save();
 
-		Git git2 = Git.open(db.getDirectory(), executableFs);
 		writeTrashFile(path2, "content2");
 		writeTrashFile(path, "binary: content2");
-		git2.add().addFilepattern(path).addFilepattern(path2).call();
-		RevCommit commit2 = git2.commit().setMessage("commit2").call();
-		try (TreeWalk walk = new TreeWalk(db)) {
-			walk.addTree(commit2.getTree());
-			walk.next();
-			assertEquals(path2, walk.getPathString());
-			assertEquals(FileMode.EXECUTABLE_FILE, walk.getFileMode(0));
-			walk.next();
-			assertEquals(path, walk.getPathString());
-			assertEquals(FileMode.REGULAR_FILE, walk.getFileMode(0));
+		try (Git git2 = Git.open(db.getDirectory(), executableFs)) {
+			git2.add().addFilepattern(path).addFilepattern(path2).call();
+			RevCommit commit2 = git2.commit().setMessage("commit2").call();
+			try (TreeWalk walk = new TreeWalk(db)) {
+				walk.addTree(commit2.getTree());
+				walk.next();
+				assertEquals(path2, walk.getPathString());
+				assertEquals(FileMode.EXECUTABLE_FILE, walk.getFileMode(0));
+				walk.next();
+				assertEquals(path, walk.getPathString());
+				assertEquals(FileMode.REGULAR_FILE, walk.getFileMode(0));
+			}
 		}
 	}
 
@@ -1291,18 +1259,19 @@ public class AddCommandTest extends RepositoryTestCase {
 		FileRepositoryBuilder nestedBuilder = new FileRepositoryBuilder();
 		nestedBuilder.setWorkTree(gitLinkDir);
 
-		Repository nestedRepo = nestedBuilder.build();
-		nestedRepo.create();
+		try (Repository nestedRepo = nestedBuilder.build()) {
+			nestedRepo.create();
 
-		writeTrashFile(path, "README1.md", "content");
-		writeTrashFile(path, "README2.md", "content");
+			writeTrashFile(path, "README1.md", "content");
+			writeTrashFile(path, "README2.md", "content");
 
-		// Commit these changes in the subrepo
-		try (Git git = new Git(nestedRepo)) {
-			git.add().addFilepattern(".").call();
-			git.commit().setMessage("subrepo commit").call();
-		} catch (GitAPIException e) {
-			throw new RuntimeException(e);
+			// Commit these changes in the subrepo
+			try (Git git = new Git(nestedRepo)) {
+				git.add().addFilepattern(".").call();
+				git.commit().setMessage("subrepo commit").call();
+			} catch (GitAPIException e) {
+				throw new RuntimeException(e);
+			}
 		}
 	}
 }

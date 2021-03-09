@@ -1,46 +1,13 @@
 /*
  * Copyright (C) 2010, Google Inc.
  * Copyright (C) 2010, Matthias Sohn <matthias.sohn@sap.com>
- * Copyright (C) 2010, Jens Baumgart <jens.baumgart@sap.com>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2010, Jens Baumgart <jens.baumgart@sap.com> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.util;
@@ -53,6 +20,7 @@ import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.CopyOption;
+import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.LinkOption;
@@ -73,7 +41,9 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Random;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 import org.eclipse.jgit.internal.JGitText;
 import org.eclipse.jgit.lib.Constants;
@@ -86,6 +56,8 @@ import org.slf4j.LoggerFactory;
  */
 public class FileUtils {
 	private static final Logger LOG = LoggerFactory.getLogger(FileUtils.class);
+
+	private static final Random RNG = new Random();
 
 	/**
 	 * Option to delete given {@code File}
@@ -210,21 +182,31 @@ public class FileUtils {
 		}
 
 		if (delete) {
-			Throwable t = null;
+			IOException t = null;
 			Path p = f.toPath();
-			try {
-				Files.delete(p);
-				return;
-			} catch (FileNotFoundException e) {
-				if ((options & (SKIP_MISSING | IGNORE_ERRORS)) == 0) {
-					throw new IOException(MessageFormat.format(
-							JGitText.get().deleteFileFailed,
-							f.getAbsolutePath()), e);
+			boolean tryAgain;
+			do {
+				tryAgain = false;
+				try {
+					Files.delete(p);
+					return;
+				} catch (NoSuchFileException | FileNotFoundException e) {
+					handleDeleteException(f, e, options,
+							SKIP_MISSING | IGNORE_ERRORS);
+					return;
+				} catch (DirectoryNotEmptyException e) {
+					handleDeleteException(f, e, options, IGNORE_ERRORS);
+					return;
+				} catch (IOException e) {
+					if (!f.canWrite()) {
+						tryAgain = f.setWritable(true);
+					}
+					if (!tryAgain) {
+						t = e;
+					}
 				}
-				return;
-			} catch (IOException e) {
-				t = e;
-			}
+			} while (tryAgain);
+
 			if ((options & RETRY) != 0) {
 				for (int i = 1; i < 10; i++) {
 					try {
@@ -240,11 +222,15 @@ public class FileUtils {
 					}
 				}
 			}
-			if ((options & IGNORE_ERRORS) == 0) {
-				throw new IOException(MessageFormat.format(
-						JGitText.get().deleteFileFailed, f.getAbsolutePath()),
-						t);
-			}
+			handleDeleteException(f, t, options, IGNORE_ERRORS);
+		}
+	}
+
+	private static void handleDeleteException(File f, IOException e,
+			int allOptions, int checkOptions) throws IOException {
+		if (e != null && (allOptions & checkOptions) == 0) {
+			throw new IOException(MessageFormat.format(
+					JGitText.get().deleteFileFailed, f.getAbsolutePath()), e);
 		}
 	}
 
@@ -330,7 +316,8 @@ public class FileUtils {
 			} catch (InterruptedException e) {
 				throw new IOException(
 						MessageFormat.format(JGitText.get().renameFileFailed,
-								src.getAbsolutePath(), dst.getAbsolutePath()));
+								src.getAbsolutePath(), dst.getAbsolutePath()),
+						e);
 			}
 		}
 		throw new IOException(
@@ -724,6 +711,8 @@ public class FileUtils {
 	}
 
 	/**
+	 * Set the last modified time of a file system object.
+	 *
 	 * @param file
 	 * @param time
 	 * @throws IOException
@@ -734,6 +723,8 @@ public class FileUtils {
 	}
 
 	/**
+	 * Set the last modified time of a file system object.
+	 *
 	 * @param path
 	 * @param time
 	 * @throws IOException
@@ -809,6 +800,23 @@ public class FileUtils {
 	 */
 	static boolean isFile(File file) {
 		return Files.isRegularFile(file.toPath(), LinkOption.NOFOLLOW_LINKS);
+	}
+
+	/**
+	 * Whether the path is a directory with files in it.
+	 *
+	 * @param dir
+	 *            directory path
+	 * @return {@code true} if the given directory path contains files
+	 * @throws IOException
+	 *             on any I/O errors accessing the path
+	 *
+	 * @since 5.11
+	 */
+	public static boolean hasFiles(Path dir) throws IOException {
+		try (Stream<Path> stream = Files.list(dir)) {
+			return stream.findAny().isPresent();
+		}
 	}
 
 	/**
@@ -985,5 +993,29 @@ public class FileUtils {
 			// touch
 		}
 		Files.setLastModifiedTime(f, FileTime.from(Instant.now()));
+	}
+
+	/**
+	 * Compute a delay in a {@code min..max} interval with random jitter.
+	 *
+	 * @param last
+	 *            amount of delay waited before the last attempt. This is used
+	 *            to seed the next delay interval. Should be 0 if there was no
+	 *            prior delay.
+	 * @param min
+	 *            shortest amount of allowable delay between attempts.
+	 * @param max
+	 *            longest amount of allowable delay between attempts.
+	 * @return new amount of delay to wait before the next attempt.
+	 *
+	 * @since 5.6
+	 */
+	public static long delay(long last, long min, long max) {
+		long r = Math.max(0, last * 3 - min);
+		if (r > 0) {
+			int c = (int) Math.min(r + 1, Integer.MAX_VALUE);
+			r = RNG.nextInt(c);
+		}
+		return Math.max(Math.min(min + r, max), min);
 	}
 }

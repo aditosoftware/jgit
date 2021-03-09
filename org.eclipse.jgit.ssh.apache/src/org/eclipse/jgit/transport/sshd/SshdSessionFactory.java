@@ -1,44 +1,11 @@
 /*
- * Copyright (C) 2018, 2019 Thomas Wolf <thomas.wolf@paranor.ch>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2018, 2020 Thomas Wolf <thomas.wolf@paranor.ch> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 package org.eclipse.jgit.transport.sshd;
 
@@ -58,21 +25,27 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import org.apache.sshd.client.ClientBuilder;
 import org.apache.sshd.client.SshClient;
-import org.apache.sshd.client.auth.UserAuth;
+import org.apache.sshd.client.auth.UserAuthFactory;
 import org.apache.sshd.client.auth.keyboard.UserAuthKeyboardInteractiveFactory;
 import org.apache.sshd.client.auth.pubkey.UserAuthPublicKeyFactory;
 import org.apache.sshd.client.config.hosts.HostConfigEntryResolver;
+import org.apache.sshd.common.SshException;
 import org.apache.sshd.common.NamedFactory;
 import org.apache.sshd.common.compression.BuiltinCompressions;
 import org.apache.sshd.common.config.keys.FilePasswordProvider;
 import org.apache.sshd.common.config.keys.loader.openssh.kdf.BCryptKdfOptions;
 import org.apache.sshd.common.keyprovider.KeyIdentityProvider;
+import org.apache.sshd.common.signature.BuiltinSignatures;
+import org.apache.sshd.common.signature.Signature;
 import org.eclipse.jgit.annotations.NonNull;
 import org.eclipse.jgit.errors.TransportException;
+import org.eclipse.jgit.internal.transport.ssh.OpenSshConfigFile;
+import org.eclipse.jgit.internal.transport.sshd.AuthenticationCanceledException;
 import org.eclipse.jgit.internal.transport.sshd.CachingKeyPairProvider;
 import org.eclipse.jgit.internal.transport.sshd.GssApiWithMicAuthFactory;
 import org.eclipse.jgit.internal.transport.sshd.JGitPasswordAuthFactory;
@@ -84,6 +57,7 @@ import org.eclipse.jgit.internal.transport.sshd.OpenSshServerKeyDatabase;
 import org.eclipse.jgit.internal.transport.sshd.PasswordProviderWrapper;
 import org.eclipse.jgit.internal.transport.sshd.SshdText;
 import org.eclipse.jgit.transport.CredentialsProvider;
+import org.eclipse.jgit.transport.SshConfigStore;
 import org.eclipse.jgit.transport.SshConstants;
 import org.eclipse.jgit.transport.SshSessionFactory;
 import org.eclipse.jgit.transport.URIish;
@@ -97,6 +71,8 @@ import org.eclipse.jgit.util.FS;
  * @since 5.2
  */
 public class SshdSessionFactory extends SshSessionFactory implements Closeable {
+
+	private static final String MINA_SSHD = "mina-sshd"; //$NON-NLS-1$
 
 	private final AtomicBoolean closing = new AtomicBoolean();
 
@@ -165,6 +141,11 @@ public class SshdSessionFactory extends SshSessionFactory implements Closeable {
 		BCryptKdfOptions.setMaxAllowedRounds(16384);
 	}
 
+	@Override
+	public String getType() {
+		return MINA_SSHD;
+	}
+
 	/** A simple general map key. */
 	private static final class Tuple {
 		private Object[] objects;
@@ -219,15 +200,15 @@ public class SshdSessionFactory extends SshSessionFactory implements Closeable {
 						home, sshDir);
 				KeyIdentityProvider defaultKeysProvider = toKeyIdentityProvider(
 						getDefaultKeys(sshDir));
-				KeyPasswordProvider passphrases = createKeyPasswordProvider(
-						credentialsProvider);
 				SshClient client = ClientBuilder.builder()
 						.factory(JGitSshClient::new)
-						.filePasswordProvider(
-								createFilePasswordProvider(passphrases))
+						.filePasswordProvider(createFilePasswordProvider(
+								() -> createKeyPasswordProvider(
+										credentialsProvider)))
 						.hostConfigEntryResolver(configFile)
 						.serverKeyVerifier(new JGitServerKeyVerifier(
 								getServerKeyDatabase(home, sshDir)))
+						.signatureFactories(getSignatureFactories())
 						.compressionFactories(
 								new ArrayList<>(BuiltinCompressions.VALUES))
 						.build();
@@ -255,7 +236,16 @@ public class SshdSessionFactory extends SshSessionFactory implements Closeable {
 			return session;
 		} catch (Exception e) {
 			unregister(session);
-			throw new TransportException(uri, e.getMessage(), e);
+			if (e instanceof TransportException) {
+				throw (TransportException) e;
+			}
+			Throwable cause = e;
+			if (e instanceof SshException && e
+					.getCause() instanceof AuthenticationCanceledException) {
+				// Results in a nicer error message
+				cause = e.getCause();
+			}
+			throw new TransportException(uri, cause.getMessage(), cause);
 		}
 	}
 
@@ -361,8 +351,8 @@ public class SshdSessionFactory extends SshSessionFactory implements Closeable {
 			@NonNull File homeDir, @NonNull File sshDir) {
 		return defaultHostConfigEntryResolver.computeIfAbsent(
 				new Tuple(new Object[] { homeDir, sshDir }),
-				t -> new JGitSshConfig(homeDir, getSshConfig(sshDir),
-						getLocalUserName()));
+				t -> new JGitSshConfig(createSshConfigStore(homeDir,
+						getSshConfig(sshDir), getLocalUserName())));
 	}
 
 	/**
@@ -381,7 +371,29 @@ public class SshdSessionFactory extends SshSessionFactory implements Closeable {
 	}
 
 	/**
-	 * Obtain a {@link ServerKeyDatabase} to verify server host keys. The
+	 * Obtains a {@link SshConfigStore}, or {@code null} if not SSH config is to
+	 * be used. The default implementation returns {@code null} if
+	 * {@code configFile == null} and otherwise an OpenSSH-compatible store
+	 * reading host entries from the given file.
+	 *
+	 * @param homeDir
+	 *            may be used for ~-replacements by the returned config store
+	 * @param configFile
+	 *            to use, or {@code null} if none
+	 * @param localUserName
+	 *            user name of the current user on the local OS
+	 * @return A {@link SshConfigStore}, or {@code null} if none is to be used
+	 *
+	 * @since 5.8
+	 */
+	protected SshConfigStore createSshConfigStore(@NonNull File homeDir,
+			File configFile, String localUserName) {
+		return configFile == null ? null
+				: new OpenSshConfigFile(homeDir, configFile, localUserName);
+	}
+
+	/**
+	 * Obtains a {@link ServerKeyDatabase} to verify server host keys. The
 	 * default implementation returns a {@link ServerKeyDatabase} that
 	 * recognizes the two openssh standard files {@code ~/.ssh/known_hosts} and
 	 * {@code ~/.ssh/known_hosts2} as well as any files configured via the
@@ -399,10 +411,31 @@ public class SshdSessionFactory extends SshSessionFactory implements Closeable {
 			@NonNull File sshDir) {
 		return defaultServerKeyDatabase.computeIfAbsent(
 				new Tuple(new Object[] { homeDir, sshDir }),
-				t -> new OpenSshServerKeyDatabase(true,
-						getDefaultKnownHostsFiles(sshDir)));
+				t -> createServerKeyDatabase(homeDir, sshDir));
 
 	}
+
+	/**
+	 * Creates a {@link ServerKeyDatabase} to verify server host keys. The
+	 * default implementation returns a {@link ServerKeyDatabase} that
+	 * recognizes the two openssh standard files {@code ~/.ssh/known_hosts} and
+	 * {@code ~/.ssh/known_hosts2} as well as any files configured via the
+	 * {@code UserKnownHostsFile} option in the ssh config file.
+	 *
+	 * @param homeDir
+	 *            home directory to use for ~ replacement
+	 * @param sshDir
+	 *            representing ~/.ssh/
+	 * @return the {@link ServerKeyDatabase}
+	 * @since 5.8
+	 */
+	@NonNull
+	protected ServerKeyDatabase createServerKeyDatabase(@NonNull File homeDir,
+			@NonNull File sshDir) {
+		return new OpenSshServerKeyDatabase(true,
+				getDefaultKnownHostsFiles(sshDir));
+	}
+
 	/**
 	 * Gets the list of default user known hosts files. The default returns
 	 * ~/.ssh/known_hosts and ~/.ssh/known_hosts2. The ssh config
@@ -518,14 +551,14 @@ public class SshdSessionFactory extends SshSessionFactory implements Closeable {
 	/**
 	 * Creates a {@link FilePasswordProvider} for a new session.
 	 *
-	 * @param provider
-	 *            the {@link KeyPasswordProvider} to delegate to
+	 * @param providerFactory
+	 *            providing the {@link KeyPasswordProvider} to delegate to
 	 * @return a new {@link FilePasswordProvider}
 	 */
 	@NonNull
 	private FilePasswordProvider createFilePasswordProvider(
-			KeyPasswordProvider provider) {
-		return new PasswordProviderWrapper(provider);
+			Supplier<KeyPasswordProvider> providerFactory) {
+		return new PasswordProviderWrapper(providerFactory);
 	}
 
 	/**
@@ -538,7 +571,7 @@ public class SshdSessionFactory extends SshSessionFactory implements Closeable {
 	 * @return the non-empty list of factories.
 	 */
 	@NonNull
-	private List<NamedFactory<UserAuth>> getUserAuthFactories() {
+	private List<UserAuthFactory> getUserAuthFactories() {
 		// About the order of password and keyboard-interactive, see upstream
 		// bug https://issues.apache.org/jira/projects/SSHD/issues/SSHD-866 .
 		// Password auth doesn't have this problem.
@@ -560,5 +593,36 @@ public class SshdSessionFactory extends SshSessionFactory implements Closeable {
 	 */
 	protected String getDefaultPreferredAuthentications() {
 		return null;
+	}
+
+	/**
+	 * Apache MINA sshd 2.6.0 has removed DSA, DSA_CERT and RSA_CERT. We have to
+	 * set it up explicitly to still allow users to connect with DSA keys.
+	 *
+	 * @return a list of supported signature factories
+	 */
+	@SuppressWarnings("deprecation")
+	private static List<NamedFactory<Signature>> getSignatureFactories() {
+		// @formatter:off
+		return Arrays.asList(
+				BuiltinSignatures.nistp256_cert,
+				BuiltinSignatures.nistp384_cert,
+				BuiltinSignatures.nistp521_cert,
+				BuiltinSignatures.ed25519_cert,
+				BuiltinSignatures.rsaSHA512_cert,
+				BuiltinSignatures.rsaSHA256_cert,
+				BuiltinSignatures.rsa_cert,
+				BuiltinSignatures.nistp256,
+				BuiltinSignatures.nistp384,
+				BuiltinSignatures.nistp521,
+				BuiltinSignatures.ed25519,
+				BuiltinSignatures.sk_ecdsa_sha2_nistp256,
+				BuiltinSignatures.sk_ssh_ed25519,
+				BuiltinSignatures.rsaSHA512,
+				BuiltinSignatures.rsaSHA256,
+				BuiltinSignatures.rsa,
+				BuiltinSignatures.dsa_cert,
+				BuiltinSignatures.dsa);
+		// @formatter:on
 	}
 }

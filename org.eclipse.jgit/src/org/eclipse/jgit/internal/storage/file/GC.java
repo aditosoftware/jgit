@@ -1,45 +1,12 @@
 /*
  * Copyright (C) 2012, Christian Halstrick <christian.halstrick@sap.com>
- * Copyright (C) 2011, Shawn O. Pearce <spearce@spearce.org>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2011, Shawn O. Pearce <spearce@spearce.org> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 package org.eclipse.jgit.internal.storage.file;
 
@@ -93,7 +60,6 @@ import org.eclipse.jgit.errors.NoWorkTreeException;
 import org.eclipse.jgit.internal.JGitText;
 import org.eclipse.jgit.internal.storage.pack.PackExt;
 import org.eclipse.jgit.internal.storage.pack.PackWriter;
-import org.eclipse.jgit.internal.storage.reftree.RefTreeNames;
 import org.eclipse.jgit.lib.ConfigConstants;
 import org.eclipse.jgit.lib.Constants;
 import org.eclipse.jgit.lib.FileMode;
@@ -131,7 +97,7 @@ import org.slf4j.LoggerFactory;
  * adapted to FileRepositories.
  */
 public class GC {
-	private final static Logger LOG = LoggerFactory
+	private static final Logger LOG = LoggerFactory
 			.getLogger(GC.class);
 
 	private static final String PRUNE_EXPIRE_DEFAULT = "2.weeks.ago"; //$NON-NLS-1$
@@ -147,6 +113,8 @@ public class GC {
 			+ PackExt.BITMAP_INDEX.getExtension();
 
 	private static final String INDEX_EXT = "." + PackExt.INDEX.getExtension(); //$NON-NLS-1$
+
+	private static final String KEEP_EXT = "." + PackExt.KEEP.getExtension(); //$NON-NLS-1$
 
 	private static final int DEFAULT_AUTOPACKLIMIT = 50;
 
@@ -237,16 +205,16 @@ public class GC {
 	 * gc.log.
 	 *
 	 * @return the collection of
-	 *         {@link org.eclipse.jgit.internal.storage.file.PackFile}'s which
+	 *         {@link org.eclipse.jgit.internal.storage.file.Pack}'s which
 	 *         are newly created
 	 * @throws java.io.IOException
 	 * @throws java.text.ParseException
 	 *             If the configuration parameter "gc.pruneexpire" couldn't be
 	 *             parsed
 	 */
-	// TODO(ms): change signature and return Future<Collection<PackFile>>
+	// TODO(ms): change signature and return Future<Collection<Pack>>
 	@SuppressWarnings("FutureReturnValueIgnored")
-	public Collection<PackFile> gc() throws IOException, ParseException {
+	public Collection<Pack> gc() throws IOException, ParseException {
 		if (!background) {
 			return doGc();
 		}
@@ -256,9 +224,9 @@ public class GC {
 			return Collections.emptyList();
 		}
 
-		Callable<Collection<PackFile>> gcTask = () -> {
+		Callable<Collection<Pack>> gcTask = () -> {
 			try {
-				Collection<PackFile> newPacks = doGc();
+				Collection<Pack> newPacks = doGc();
 				if (automatic && tooManyLooseObjects()) {
 					String message = JGitText.get().gcTooManyUnpruned;
 					gcLog.write(message);
@@ -290,14 +258,14 @@ public class GC {
 		return (executor != null) ? executor : WorkQueue.getExecutor();
 	}
 
-	private Collection<PackFile> doGc() throws IOException, ParseException {
+	private Collection<Pack> doGc() throws IOException, ParseException {
 		if (automatic && !needGc()) {
 			return Collections.emptyList();
 		}
 		pm.start(6 /* tasks */);
 		packRefs();
 		// TODO: implement reflog_expire(pm, repo);
-		Collection<PackFile> newPacks = repack();
+		Collection<Pack> newPacks = repack();
 		prune(Collections.emptySet());
 		// TODO: implement rerere_gc(pm);
 		return newPacks;
@@ -313,7 +281,7 @@ public class GC {
 	 * @param existing
 	 * @throws IOException
 	 */
-	private void loosen(ObjectDirectoryInserter inserter, ObjectReader reader, PackFile pack, HashSet<ObjectId> existing)
+	private void loosen(ObjectDirectoryInserter inserter, ObjectReader reader, Pack pack, HashSet<ObjectId> existing)
 			throws IOException {
 		for (PackIndex.MutableEntry entry : pack) {
 			ObjectId oid = entry.toObjectId();
@@ -345,10 +313,10 @@ public class GC {
 	 * @throws ParseException
 	 * @throws IOException
 	 */
-	private void deleteOldPacks(Collection<PackFile> oldPacks,
-			Collection<PackFile> newPacks) throws ParseException, IOException {
+	private void deleteOldPacks(Collection<Pack> oldPacks,
+			Collection<Pack> newPacks) throws ParseException, IOException {
 		HashSet<ObjectId> ids = new HashSet<>();
-		for (PackFile pack : newPacks) {
+		for (Pack pack : newPacks) {
 			for (PackIndex.MutableEntry entry : pack) {
 				ids.add(entry.toObjectId());
 			}
@@ -361,12 +329,12 @@ public class GC {
 
 		prunePreserved();
 		long packExpireDate = getPackExpireDate();
-		oldPackLoop: for (PackFile oldPack : oldPacks) {
+		oldPackLoop: for (Pack oldPack : oldPacks) {
 			checkCancelled();
 			String oldName = oldPack.getPackName();
 			// check whether an old pack file is also among the list of new
 			// pack files. Then we must not delete it.
-			for (PackFile newPack : newPacks)
+			for (Pack newPack : newPacks)
 				if (oldName.equals(newPack.getPackName()))
 					continue oldPackLoop;
 
@@ -470,7 +438,7 @@ public class GC {
 	 */
 	public void prunePacked() throws IOException {
 		ObjectDirectory objdb = repo.getObjectDatabase();
-		Collection<PackFile> packs = objdb.getPacks();
+		Collection<Pack> packs = objdb.getPacks();
 		File objects = repo.getObjectsDirectory();
 		String[] fanout = objects.list();
 
@@ -498,7 +466,7 @@ public class GC {
 							continue;
 						}
 						boolean found = false;
-						for (PackFile p : packs) {
+						for (Pack p : packs) {
 							checkCancelled();
 							if (p.hasObject(id)) {
 								found = true;
@@ -771,13 +739,26 @@ public class GC {
 	}
 
 	/**
-	 * Packs all non-symbolic, loose refs into packed-refs.
+	 * Pack ref storage. For a RefDirectory database, this packs all
+	 * non-symbolic, loose refs into packed-refs. For Reftable, all of the data
+	 * is compacted into a single table.
 	 *
 	 * @throws java.io.IOException
 	 */
 	public void packRefs() throws IOException {
-		Collection<Ref> refs = repo.getRefDatabase()
-				.getRefsByPrefix(Constants.R_REFS);
+		RefDatabase refDb = repo.getRefDatabase();
+		if (refDb instanceof FileReftableDatabase) {
+			// TODO: abstract this more cleanly.
+			pm.beginTask(JGitText.get().packRefs, 1);
+			try {
+				((FileReftableDatabase) refDb).compactFully();
+			} finally {
+				pm.endTask();
+			}
+			return;
+		}
+
+		Collection<Ref> refs = refDb.getRefsByPrefix(Constants.R_REFS);
 		List<String> refsToBePacked = new ArrayList<>(refs.size());
 		pm.beginTask(JGitText.get().packRefs, refs.size());
 		try {
@@ -807,8 +788,8 @@ public class GC {
 	 *             reflog-entries or during writing to the packfiles
 	 *             {@link java.io.IOException} occurs
 	 */
-	public Collection<PackFile> repack() throws IOException {
-		Collection<PackFile> toBeDeleted = repo.getObjectDatabase().getPacks();
+	public Collection<Pack> repack() throws IOException {
+		Collection<Pack> toBeDeleted = repo.getObjectDatabase().getPacks();
 
 		long time = System.currentTimeMillis();
 		Collection<Ref> refsBefore = getAllRefs();
@@ -820,7 +801,6 @@ public class GC {
 		Set<ObjectId> txnHeads = new HashSet<>();
 		Set<ObjectId> tagTargets = new HashSet<>();
 		Set<ObjectId> indexObjects = listNonHEADIndexObjects();
-		RefDatabase refdb = repo.getRefDatabase();
 
 		for (Ref ref : refsBefore) {
 			checkCancelled();
@@ -832,8 +812,6 @@ public class GC {
 				allHeads.add(ref.getObjectId());
 			} else if (isTag(ref)) {
 				allTags.add(ref.getObjectId());
-			} else if (RefTreeNames.isRefTree(refdb, ref.getName())) {
-				txnHeads.add(ref.getObjectId());
 			} else {
 				nonHeads.add(ref.getObjectId());
 			}
@@ -843,10 +821,10 @@ public class GC {
 		}
 
 		List<ObjectIdSet> excluded = new LinkedList<>();
-		for (PackFile f : repo.getObjectDatabase().getPacks()) {
+		for (Pack p : repo.getObjectDatabase().getPacks()) {
 			checkCancelled();
-			if (f.shouldBeKept())
-				excluded.add(f.getIndex());
+			if (p.shouldBeKept())
+				excluded.add(p.getIndex());
 		}
 
 		// Don't exclude tags that are also branch tips
@@ -864,8 +842,8 @@ public class GC {
 			nonHeads.clear();
 		}
 
-		List<PackFile> ret = new ArrayList<>(2);
-		PackFile heads = null;
+		List<Pack> ret = new ArrayList<>(2);
+		Pack heads = null;
 		if (!allHeadsAndTags.isEmpty()) {
 			heads = writePack(allHeadsAndTags, PackWriter.NONE, allTags,
 					tagTargets, excluded);
@@ -875,13 +853,13 @@ public class GC {
 			}
 		}
 		if (!nonHeads.isEmpty()) {
-			PackFile rest = writePack(nonHeads, allHeadsAndTags, PackWriter.NONE,
+			Pack rest = writePack(nonHeads, allHeadsAndTags, PackWriter.NONE,
 					tagTargets, excluded);
 			if (rest != null)
 				ret.add(rest);
 		}
 		if (!txnHeads.isEmpty()) {
-			PackFile txn = writePack(txnHeads, PackWriter.NONE, PackWriter.NONE,
+			Pack txn = writePack(txnHeads, PackWriter.NONE, PackWriter.NONE,
 					null, excluded);
 			if (txn != null)
 				ret.add(txn);
@@ -895,7 +873,10 @@ public class GC {
 			throw new IOException(e);
 		}
 		prunePacked();
-		deleteEmptyRefsFolders();
+		if (repo.getRefDatabase() instanceof RefDirectory) {
+			// TODO: abstract this more cleanly.
+			deleteEmptyRefsFolders();
+		}
 		deleteOrphans();
 		deleteTempPacksIdx();
 
@@ -978,11 +959,15 @@ public class GC {
 			fileNames = files.map(path -> path.getFileName().toString())
 					.filter(name -> (name.endsWith(PACK_EXT)
 							|| name.endsWith(BITMAP_EXT)
-							|| name.endsWith(INDEX_EXT)))
+							|| name.endsWith(INDEX_EXT)
+							|| name.endsWith(KEEP_EXT)))
+					// sort files with same base name in the order:
+					// .pack, .keep, .index, .bitmap to avoid look ahead
 					.sorted(Collections.reverseOrder())
 					.collect(Collectors.toList());
-		} catch (IOException e1) {
-			// ignore
+		} catch (IOException e) {
+			LOG.error(e.getMessage(), e);
+			return;
 		}
 		if (fileNames == null) {
 			return;
@@ -990,12 +975,15 @@ public class GC {
 
 		String base = null;
 		for (String n : fileNames) {
-			if (n.endsWith(PACK_EXT)) {
+			if (n.endsWith(PACK_EXT) || n.endsWith(KEEP_EXT)) {
 				base = n.substring(0, n.lastIndexOf('.'));
 			} else {
 				if (base == null || !n.startsWith(base)) {
 					try {
-						Files.delete(packDir.resolve(n));
+						Path delete = packDir.resolve(n);
+						FileUtils.delete(delete.toFile(),
+								FileUtils.RETRY | FileUtils.SKIP_MISSING);
+						LOG.warn(JGitText.get().deletedOrphanInPackDir, delete);
 					} catch (IOException e) {
 						LOG.error(e.getMessage(), e);
 					}
@@ -1141,7 +1129,7 @@ public class GC {
 		}
 	}
 
-	private PackFile writePack(@NonNull Set<? extends ObjectId> want,
+	private Pack writePack(@NonNull Set<? extends ObjectId> want,
 			@NonNull Set<? extends ObjectId> have, @NonNull Set<ObjectId> tags,
 			Set<ObjectId> tagTargets, List<ObjectIdSet> excludeObjects)
 			throws IOException {
@@ -1182,6 +1170,7 @@ public class GC {
 			// create temporary files
 			String id = pw.computeName().getName();
 			File packdir = repo.getObjectDatabase().getPackDirectory();
+			packdir.mkdirs();
 			tmpPack = File.createTempFile("gc_", ".pack_tmp", packdir); //$NON-NLS-1$ //$NON-NLS-2$
 			final String tmpBase = tmpPack.getName()
 					.substring(0, tmpPack.getName().lastIndexOf('.'));
@@ -1367,13 +1356,13 @@ public class GC {
 	 */
 	public RepoStatistics getStatistics() throws IOException {
 		RepoStatistics ret = new RepoStatistics();
-		Collection<PackFile> packs = repo.getObjectDatabase().getPacks();
-		for (PackFile f : packs) {
-			ret.numberOfPackedObjects += f.getIndex().getObjectCount();
+		Collection<Pack> packs = repo.getObjectDatabase().getPacks();
+		for (Pack p : packs) {
+			ret.numberOfPackedObjects += p.getIndex().getObjectCount();
 			ret.numberOfPackFiles++;
-			ret.sizeOfPackedObjects += f.getPackFile().length();
-			if (f.getBitmapIndex() != null)
-				ret.numberOfBitmaps += f.getBitmapIndex().getBitmapCount();
+			ret.sizeOfPackedObjects += p.getPackFile().length();
+			if (p.getBitmapIndex() != null)
+				ret.numberOfBitmaps += p.getBitmapIndex().getBitmapCount();
 		}
 		File objDir = repo.getObjectsDirectory();
 		String[] fanout = objDir.list();

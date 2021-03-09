@@ -2,46 +2,13 @@
  * Copyright (C) 2008, Shawn O. Pearce <spearce@spearce.org>
  * Copyright (C) 2010, Christian Halstrick <christian.halstrick@sap.com>
  * Copyright (C) 2010, Matthias Sohn <matthias.sohn@sap.com>
- * Copyright (C) 2012-2013, Robin Rosenberg
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2012-2021, Robin Rosenberg and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.treewalk;
@@ -58,6 +25,7 @@ import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CharsetEncoder;
+import java.nio.file.Path;
 import java.text.MessageFormat;
 import java.time.Instant;
 import java.util.Arrays;
@@ -81,8 +49,8 @@ import org.eclipse.jgit.errors.NoWorkTreeException;
 import org.eclipse.jgit.ignore.FastIgnoreRule;
 import org.eclipse.jgit.ignore.IgnoreNode;
 import org.eclipse.jgit.internal.JGitText;
+import org.eclipse.jgit.lib.ConfigConstants;
 import org.eclipse.jgit.lib.Constants;
-import org.eclipse.jgit.lib.CoreConfig;
 import org.eclipse.jgit.lib.CoreConfig.CheckStat;
 import org.eclipse.jgit.lib.CoreConfig.EolStreamType;
 import org.eclipse.jgit.lib.CoreConfig.SymLinks;
@@ -95,6 +63,7 @@ import org.eclipse.jgit.submodule.SubmoduleWalk;
 import org.eclipse.jgit.treewalk.TreeWalk.OperationType;
 import org.eclipse.jgit.util.FS;
 import org.eclipse.jgit.util.FS.ExecutionResult;
+import org.eclipse.jgit.util.FileUtils;
 import org.eclipse.jgit.util.Holder;
 import org.eclipse.jgit.util.IO;
 import org.eclipse.jgit.util.Paths;
@@ -555,6 +524,17 @@ public abstract class WorkingTreeIterator extends AbstractTreeIterator {
 		return state.options;
 	}
 
+	/**
+	 * Retrieves the {@link Repository} this {@link WorkingTreeIterator}
+	 * operates on.
+	 *
+	 * @return the {@link Repository}
+	 * @since 5.9
+	 */
+	public Repository getRepository() {
+		return repository;
+	}
+
 	/** {@inheritDoc} */
 	@Override
 	public int idOffset() {
@@ -685,10 +665,10 @@ public abstract class WorkingTreeIterator extends AbstractTreeIterator {
 	public InputStream openEntryStream() throws IOException {
 		InputStream rawis = current().openInputStream();
 		if (getCleanFilterCommand() == null
-				&& getEolStreamType() == EolStreamType.DIRECT)
+				&& getEolStreamType() == EolStreamType.DIRECT) {
 			return rawis;
-		else
-			return filterClean(rawis);
+		}
+		return filterClean(rawis);
 	}
 
 	/**
@@ -820,7 +800,10 @@ public abstract class WorkingTreeIterator extends AbstractTreeIterator {
 			if (Constants.DOT_GIT.equals(name))
 				continue;
 			if (Constants.DOT_GIT_IGNORE.equals(name))
-				ignoreNode = new PerDirectoryIgnoreNode(e);
+				ignoreNode = new PerDirectoryIgnoreNode(
+						TreeWalk.pathOf(path, 0, pathOffset)
+								+ Constants.DOT_GIT_IGNORE,
+						e);
 			if (Constants.DOT_GIT_ATTRIBUTES.equals(name))
 				attributesNode = new PerDirectoryAttributesNode(e);
 			if (i != o)
@@ -979,13 +962,13 @@ public abstract class WorkingTreeIterator extends AbstractTreeIterator {
 		MetadataDiff diff = compareMetadata(entry);
 		switch (diff) {
 		case DIFFER_BY_TIMESTAMP:
-			if (forceContentCheck)
+			if (forceContentCheck) {
 				// But we are told to look at content even though timestamps
 				// tell us about modification
 				return contentCheck(entry, reader);
-			else
-				// We are told to assume a modification if timestamps differs
-				return true;
+			}
+			// We are told to assume a modification if timestamps differs
+			return true;
 		case SMUDGED:
 			// The file is clean by timestamps but the entry was smudged.
 			// Lets do a content check
@@ -1004,8 +987,9 @@ public abstract class WorkingTreeIterator extends AbstractTreeIterator {
 					return true;
 				} else if (ObjectId.zeroId().compareTo(idBuffer,
 						idOffset) == 0) {
-					return new File(repository.getWorkTree(),
-							entry.getPathString()).list().length > 0;
+					Path p = repository.getWorkTree().toPath()
+							.resolve(entry.getPathString());
+					return FileUtils.hasFiles(p);
 				}
 				return false;
 			} else if (mode == FileMode.SYMLINK.getBits())
@@ -1086,14 +1070,13 @@ public abstract class WorkingTreeIterator extends AbstractTreeIterator {
 			entry.setLength((int) getEntryLength());
 
 			return false;
-		} else {
-			if (mode == FileMode.SYMLINK.getBits()) {
-				return !new File(readSymlinkTarget(current())).equals(
-						new File(readContentAsNormalizedString(entry, reader)));
-			}
-			// Content differs: that's a real change
-			return true;
 		}
+		if (mode == FileMode.SYMLINK.getBits()) {
+			return !new File(readSymlinkTarget(current())).equals(
+					new File(readContentAsNormalizedString(entry, reader)));
+		}
+		// Content differs: that's a real change
+		return true;
 	}
 
 	private static String readContentAsNormalizedString(DirCacheEntry entry,
@@ -1181,7 +1164,7 @@ public abstract class WorkingTreeIterator extends AbstractTreeIterator {
 	 *
 	 * @since 5.0
 	 */
-	public static abstract class Entry {
+	public abstract static class Entry {
 		byte[] encodedName;
 
 		int encodedNameLen;
@@ -1193,7 +1176,7 @@ public abstract class WorkingTreeIterator extends AbstractTreeIterator {
 			} catch (CharacterCodingException e) {
 				// This should so never happen.
 				throw new RuntimeException(MessageFormat.format(
-						JGitText.get().unencodeableFile, getName()));
+						JGitText.get().unencodeableFile, getName()), e);
 			}
 
 			encodedNameLen = b.limit();
@@ -1294,17 +1277,20 @@ public abstract class WorkingTreeIterator extends AbstractTreeIterator {
 
 	/** Magic type indicating we know rules exist, but they aren't loaded. */
 	private static class PerDirectoryIgnoreNode extends IgnoreNode {
-		final Entry entry;
+		protected final Entry entry;
 
-		PerDirectoryIgnoreNode(Entry entry) {
+		private final String name;
+
+		PerDirectoryIgnoreNode(String name, Entry entry) {
 			super(Collections.<FastIgnoreRule> emptyList());
+			this.name = name;
 			this.entry = entry;
 		}
 
 		IgnoreNode load() throws IOException {
 			IgnoreNode r = new IgnoreNode();
 			try (InputStream in = entry.openInputStream()) {
-				r.parse(in);
+				r.parse(name, in);
 			}
 			return r.getRules().isEmpty() ? null : r;
 		}
@@ -1315,7 +1301,7 @@ public abstract class WorkingTreeIterator extends AbstractTreeIterator {
 		final Repository repository;
 
 		RootIgnoreNode(Entry entry, Repository repository) {
-			super(entry);
+			super(entry != null ? entry.getName() : null, entry);
 			this.repository = repository;
 		}
 
@@ -1331,15 +1317,11 @@ public abstract class WorkingTreeIterator extends AbstractTreeIterator {
 			}
 
 			FS fs = repository.getFS();
-			String path = repository.getConfig().get(CoreConfig.KEY)
-					.getExcludesFile();
+			Path path = repository.getConfig().getPath(
+					ConfigConstants.CONFIG_CORE_SECTION, null,
+					ConfigConstants.CONFIG_KEY_EXCLUDESFILE, fs, null, null);
 			if (path != null) {
-				File excludesfile;
-				if (path.startsWith("~/")) //$NON-NLS-1$
-					excludesfile = fs.resolve(fs.userHome(), path.substring(2));
-				else
-					excludesfile = fs.resolve(null, path);
-				loadRulesFromFile(r, excludesfile);
+				loadRulesFromFile(r, path.toFile());
 			}
 
 			File exclude = fs.resolve(repository.getDirectory(),
@@ -1353,7 +1335,7 @@ public abstract class WorkingTreeIterator extends AbstractTreeIterator {
 				throws FileNotFoundException, IOException {
 			if (FS.DETECTED.exists(exclude)) {
 				try (FileInputStream in = new FileInputStream(exclude)) {
-					r.parse(in);
+					r.parse(exclude.getAbsolutePath(), in);
 				}
 			}
 		}
@@ -1501,7 +1483,7 @@ public abstract class WorkingTreeIterator extends AbstractTreeIterator {
 		}
 		// Read blob from index and check for CR/LF-delimited text.
 		DirCacheEntry entry = dirCache.getDirCacheEntry();
-		if (FileMode.REGULAR_FILE.equals(entry.getFileMode())) {
+		if ((entry.getRawMode() & FileMode.TYPE_MASK) == FileMode.TYPE_FILE) {
 			ObjectId blobId = entry.getObjectId();
 			if (entry.getStage() > 0
 					&& entry.getStage() != DirCacheEntry.STAGE_2) {
@@ -1518,7 +1500,10 @@ public abstract class WorkingTreeIterator extends AbstractTreeIterator {
 						break;
 					}
 					if (entry.getStage() == DirCacheEntry.STAGE_2) {
-						blobId = entry.getObjectId();
+						if ((entry.getRawMode()
+								& FileMode.TYPE_MASK) == FileMode.TYPE_FILE) {
+							blobId = entry.getObjectId();
+						}
 						break;
 					}
 				}

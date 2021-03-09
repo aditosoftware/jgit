@@ -1,45 +1,12 @@
 /*
  * Copyright (C) 2008-2010, Google Inc.
- * Copyright (C) 2008, Shawn O. Pearce <spearce@spearce.org>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2008, Shawn O. Pearce <spearce@spearce.org> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.lib;
@@ -67,6 +34,7 @@ import static org.eclipse.jgit.lib.ObjectChecker.ErrorType.ZERO_PADDED_FILEMODE;
 import static org.eclipse.jgit.util.RawParseUtils.decode;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.fail;
 
 import java.text.MessageFormat;
@@ -74,9 +42,7 @@ import java.text.MessageFormat;
 import org.eclipse.jgit.errors.CorruptObjectException;
 import org.eclipse.jgit.internal.JGitText;
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.ExpectedException;
 
 public class ObjectCheckerTest {
 	private static final ObjectChecker SECRET_KEY_CHECKER = new ObjectChecker() {
@@ -117,9 +83,6 @@ public class ObjectCheckerTest {
 
 	private ObjectChecker checker;
 
-	@Rule
-	public final ExpectedException thrown = ExpectedException.none();
-
 	@Before
 	public void setUp() throws Exception {
 		checker = new ObjectChecker();
@@ -149,9 +112,9 @@ public class ObjectCheckerTest {
 	}
 
 	@Test
-	public void testCheckBlobCorrupt() throws CorruptObjectException {
-		thrown.expect(CorruptObjectException.class);
-		SECRET_KEY_CHECKER.check(OBJ_BLOB, encodeASCII("key = \"secret_key\""));
+	public void testCheckBlobCorrupt() {
+		assertThrows(CorruptObjectException.class, () -> SECRET_KEY_CHECKER
+				.check(OBJ_BLOB, encodeASCII("key = \"secret_key\"")));
 	}
 
 	@Test
@@ -162,11 +125,9 @@ public class ObjectCheckerTest {
 	}
 
 	@Test
-	public void testCheckBlobWithBlobObjectCheckerCorrupt()
-			throws CorruptObjectException {
-		thrown.expect(CorruptObjectException.class);
-		SECRET_KEY_BLOB_CHECKER.check(OBJ_BLOB,
-				encodeASCII("key = \"secret_key\""));
+	public void testCheckBlobWithBlobObjectCheckerCorrupt() {
+		assertThrows(CorruptObjectException.class, () -> SECRET_KEY_BLOB_CHECKER
+				.check(OBJ_BLOB, encodeASCII("key = \"secret_key\"")));
 	}
 
 	@Test

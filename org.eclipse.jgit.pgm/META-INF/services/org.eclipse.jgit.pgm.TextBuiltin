@@ -8,6 +8,7 @@ org.eclipse.jgit.pgm.Clean
 org.eclipse.jgit.pgm.Clone
 org.eclipse.jgit.pgm.Commit
 org.eclipse.jgit.pgm.Config
+org.eclipse.jgit.pgm.ConvertRefStorage
 org.eclipse.jgit.pgm.Daemon
 org.eclipse.jgit.pgm.Describe
 org.eclipse.jgit.pgm.Diff
@@ -46,7 +47,6 @@ org.eclipse.jgit.pgm.debug.MakeCacheTree
 org.eclipse.jgit.pgm.debug.ReadDirCache
 org.eclipse.jgit.pgm.debug.ReadReftable
 org.eclipse.jgit.pgm.debug.RebuildCommitGraph
-org.eclipse.jgit.pgm.debug.RebuildRefTree
 org.eclipse.jgit.pgm.debug.ShowCacheTree
 org.eclipse.jgit.pgm.debug.ShowCommands
 org.eclipse.jgit.pgm.debug.ShowDirCache

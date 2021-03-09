@@ -1,44 +1,11 @@
 /*
- * Copyright (C) 2010, Red Hat Inc.
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2010, 2021 Red Hat Inc. and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 package org.eclipse.jgit.ignore;
 
@@ -48,9 +15,16 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+
+import org.eclipse.jgit.annotations.Nullable;
+import org.eclipse.jgit.errors.InvalidPatternException;
+import org.eclipse.jgit.internal.JGitText;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Represents a bundle of ignore rules inherited from a base directory.
@@ -58,8 +32,11 @@ import java.util.List;
  * This class is not thread safe, it maintains state about the last match.
  */
 public class IgnoreNode {
+
+	private static final Logger LOG = LoggerFactory.getLogger(IgnoreNode.class);
+
 	/** Result from {@link IgnoreNode#isIgnored(String, boolean)}. */
-	public static enum MatchResult {
+	public enum MatchResult {
 		/** The file is not ignored, due to a rule saying its not ignored. */
 		NOT_IGNORED,
 
@@ -85,7 +62,7 @@ public class IgnoreNode {
 	 * Create an empty ignore node with no rules.
 	 */
 	public IgnoreNode() {
-		rules = new ArrayList<>();
+		this(new ArrayList<>());
 	}
 
 	/**
@@ -108,15 +85,47 @@ public class IgnoreNode {
 	 *             Error thrown when reading an ignore file.
 	 */
 	public void parse(InputStream in) throws IOException {
+		parse(null, in);
+	}
+
+	/**
+	 * Parse files according to gitignore standards.
+	 *
+	 * @param sourceName
+	 *            identifying the source of the stream
+	 * @param in
+	 *            input stream holding the standard ignore format. The caller is
+	 *            responsible for closing the stream.
+	 * @throws java.io.IOException
+	 *             Error thrown when reading an ignore file.
+	 * @since 5.11
+	 */
+	public void parse(String sourceName, InputStream in) throws IOException {
 		BufferedReader br = asReader(in);
 		String txt;
+		int lineNumber = 1;
 		while ((txt = br.readLine()) != null) {
 			if (txt.length() > 0 && !txt.startsWith("#") && !txt.equals("/")) { //$NON-NLS-1$ //$NON-NLS-2$
-				FastIgnoreRule rule = new FastIgnoreRule(txt);
+				FastIgnoreRule rule = new FastIgnoreRule();
+				try {
+					rule.parse(txt);
+				} catch (InvalidPatternException e) {
+					if (sourceName != null) {
+						LOG.error(MessageFormat.format(
+								JGitText.get().badIgnorePatternFull, sourceName,
+								Integer.toString(lineNumber), e.getPattern(),
+								e.getLocalizedMessage()), e);
+					} else {
+						LOG.error(MessageFormat.format(
+								JGitText.get().badIgnorePattern,
+								e.getPattern()), e);
+					}
+				}
 				if (!rule.isEmpty()) {
 					rules.add(rule);
 				}
 			}
+			lineNumber++;
 		}
 	}
 
@@ -168,7 +177,8 @@ public class IgnoreNode {
 	 *         undetermined
 	 * @since 4.11
 	 */
-	public Boolean checkIgnored(String entryPath, boolean isDirectory) {
+	public @Nullable Boolean checkIgnored(String entryPath,
+			boolean isDirectory) {
 		// Parse rules in the reverse order that they were read because later
 		// rules have higher priority
 		for (int i = rules.size() - 1; i > -1; i--) {

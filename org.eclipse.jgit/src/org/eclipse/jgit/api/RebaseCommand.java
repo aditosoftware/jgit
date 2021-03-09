@@ -1,45 +1,12 @@
 /*
  * Copyright (C) 2010, 2013 Mathias Kinzler <mathias.kinzler@sap.com>
- * Copyright (C) 2016, Laurent Delaigue <laurent.delaigue@obeo.fr>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2016, Laurent Delaigue <laurent.delaigue@obeo.fr> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 package org.eclipse.jgit.api;
 
@@ -100,6 +67,7 @@ import org.eclipse.jgit.lib.RefUpdate.Result;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.merge.MergeStrategy;
 import org.eclipse.jgit.revwalk.RevCommit;
+import org.eclipse.jgit.revwalk.RevSort;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.revwalk.filter.RevFilter;
 import org.eclipse.jgit.submodule.SubmoduleWalk.IgnoreSubmoduleMode;
@@ -371,8 +339,7 @@ public class RebaseCommand extends GitCommand<RebaseResult> {
 						steps, false);
 			}
 			checkSteps(steps);
-			for (int i = 0; i < steps.size(); i++) {
-				RebaseTodoLine step = steps.get(i);
+			for (RebaseTodoLine step : steps) {
 				popSteps(1);
 				RebaseResult result = processStep(step, true);
 				if (result != null) {
@@ -509,10 +476,10 @@ public class RebaseCommand extends GitCommand<RebaseResult> {
 			monitor.beginTask(MessageFormat.format(
 					JGitText.get().applyingCommit,
 					commitToPick.getShortMessage()), ProgressMonitor.UNKNOWN);
-			if (preserveMerges)
+			if (preserveMerges) {
 				return cherryPickCommitPreservingMerges(commitToPick);
-			else
-				return cherryPickCommitFlattening(commitToPick);
+			}
+			return cherryPickCommitFlattening(commitToPick);
 		} finally {
 			monitor.endTask();
 		}
@@ -539,11 +506,11 @@ public class RebaseCommand extends GitCommand<RebaseResult> {
 					.call();
 				switch (cherryPickResult.getStatus()) {
 				case FAILED:
-					if (operation == Operation.BEGIN)
+					if (operation == Operation.BEGIN) {
 						return abort(RebaseResult
 								.failed(cherryPickResult.getFailingPaths()));
-					else
-						return stop(commitToPick, Status.STOPPED);
+					}
+					return stop(commitToPick, Status.STOPPED);
 				case CONFLICTING:
 					return stop(commitToPick, Status.STOPPED);
 				case OK:
@@ -599,11 +566,11 @@ public class RebaseCommand extends GitCommand<RebaseResult> {
 					CherryPickResult cherryPickResult = pickCommand.call();
 					switch (cherryPickResult.getStatus()) {
 					case FAILED:
-						if (operation == Operation.BEGIN)
+						if (operation == Operation.BEGIN) {
 							return abort(RebaseResult.failed(
 									cherryPickResult.getFailingPaths()));
-						else
-							return stop(commitToPick, Status.STOPPED);
+						}
+						return stop(commitToPick, Status.STOPPED);
 					case CONFLICTING:
 						return stop(commitToPick, Status.STOPPED);
 					case OK:
@@ -833,7 +800,8 @@ public class RebaseCommand extends GitCommand<RebaseResult> {
 		sb.append("# This is a combination of ").append(count)
 				.append(" commits.\n");
 		// Add the previous message without header (i.e first line)
-		sb.append(currSquashMessage.substring(currSquashMessage.indexOf("\n") + 1));
+		sb.append(currSquashMessage
+				.substring(currSquashMessage.indexOf('\n') + 1));
 		sb.append("\n");
 		if (isSquash) {
 			sb.append("# This is the ").append(count).append(ordinal)
@@ -871,7 +839,7 @@ public class RebaseCommand extends GitCommand<RebaseResult> {
 	static int parseSquashFixupSequenceCount(String currSquashMessage) {
 		String regex = "This is a combination of (.*) commits"; //$NON-NLS-1$
 		String firstLine = currSquashMessage.substring(0,
-				currSquashMessage.indexOf("\n")); //$NON-NLS-1$
+				currSquashMessage.indexOf('\n'));
 		Pattern pattern = Pattern.compile(regex);
 		Matcher matcher = pattern.matcher(firstLine);
 		if (!matcher.find())
@@ -1170,15 +1138,19 @@ public class RebaseCommand extends GitCommand<RebaseResult> {
 
 	private List<RevCommit> calculatePickList(RevCommit headCommit)
 			throws GitAPIException, NoHeadException, IOException {
-		Iterable<RevCommit> commitsToUse;
-		try (Git git = new Git(repo)) {
-			LogCommand cmd = git.log().addRange(upstreamCommit, headCommit);
-			commitsToUse = cmd.call();
-		}
 		List<RevCommit> cherryPickList = new ArrayList<>();
-		for (RevCommit commit : commitsToUse) {
-			if (preserveMerges || commit.getParentCount() == 1)
-				cherryPickList.add(commit);
+		try (RevWalk r = new RevWalk(repo)) {
+			r.sort(RevSort.TOPO_KEEP_BRANCH_TOGETHER, true);
+			r.sort(RevSort.COMMIT_TIME_DESC, true);
+			r.markUninteresting(r.lookupCommit(upstreamCommit));
+			r.markStart(r.lookupCommit(headCommit));
+			Iterator<RevCommit> commitsToUse = r.iterator();
+			while (commitsToUse.hasNext()) {
+				RevCommit commit = commitsToUse.next();
+				if (preserveMerges || commit.getParentCount() == 1) {
+					cherryPickList.add(commit);
+				}
+			}
 		}
 		Collections.reverse(cherryPickList);
 

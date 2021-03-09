@@ -1,45 +1,12 @@
 /*
  * Copyright (C) 2008, 2017, Google Inc.
- * Copyright (C) 2017, 2018, Thomas Wolf <thomas.wolf@paranor.ch>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2017, 2018, Thomas Wolf <thomas.wolf@paranor.ch> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.internal.transport.ssh;
@@ -65,6 +32,7 @@ import java.util.TreeSet;
 import org.eclipse.jgit.annotations.NonNull;
 import org.eclipse.jgit.errors.InvalidPatternException;
 import org.eclipse.jgit.fnmatch.FileNameMatcher;
+import org.eclipse.jgit.transport.SshConfigStore;
 import org.eclipse.jgit.transport.SshConstants;
 import org.eclipse.jgit.util.FS;
 import org.eclipse.jgit.util.StringUtils;
@@ -113,7 +81,7 @@ import org.eclipse.jgit.util.SystemReader;
  * @see <a href="http://man.openbsd.org/OpenBSD-current/man5/ssh_config.5">man
  *      ssh-config</a>
  */
-public class OpenSshConfigFile {
+public class OpenSshConfigFile implements SshConfigStore {
 
 	/**
 	 * "Host" name of the HostEntry for the default options before the first
@@ -185,8 +153,9 @@ public class OpenSshConfigFile {
 	 *            the user supplied; <= 0 if none
 	 * @param userName
 	 *            the user supplied, may be {@code null} or empty if none given
-	 * @return r configuration for the requested name.
+	 * @return the configuration for the requested name.
 	 */
+	@Override
 	@NonNull
 	public HostEntry lookup(@NonNull String hostName, int port,
 			String userName) {
@@ -384,9 +353,8 @@ public class OpenSshConfigFile {
 	private static boolean isHostMatch(String pattern, String name) {
 		if (pattern.startsWith("!")) { //$NON-NLS-1$
 			return !patternMatchesHost(pattern.substring(1), name);
-		} else {
-			return patternMatchesHost(pattern, name);
 		}
+		return patternMatchesHost(pattern, name);
 	}
 
 	private static boolean patternMatchesHost(String pattern, String name) {
@@ -399,10 +367,9 @@ public class OpenSshConfigFile {
 			}
 			fn.append(name);
 			return fn.isMatch();
-		} else {
-			// Not a pattern but a full host name
-			return pattern.equals(name);
 		}
+		// Not a pattern but a full host name
+		return pattern.equals(name);
 	}
 
 	private static String dequote(String value) {
@@ -481,7 +448,7 @@ public class OpenSshConfigFile {
 	 * of several matching host entries, %-substitutions, and ~ replacement have
 	 * all been done.
 	 */
-	public static class HostEntry {
+	public static class HostEntry implements SshConfigStore.HostConfig {
 
 		/**
 		 * Keys that can be specified multiple times, building up a list. (I.e.,
@@ -524,7 +491,7 @@ public class OpenSshConfigFile {
 		private Map<String, List<String>> listOptions;
 
 		/**
-		 * Retrieves the value of a single-valued key, or the first is the key
+		 * Retrieves the value of a single-valued key, or the first if the key
 		 * has multiple values. Keys are case-insensitive, so
 		 * {@code getValue("HostName") == getValue("HOSTNAME")}.
 		 *
@@ -532,6 +499,7 @@ public class OpenSshConfigFile {
 		 *            to get the value of
 		 * @return the value, or {@code null} if none
 		 */
+		@Override
 		public String getValue(String key) {
 			String result = options != null ? options.get(key) : null;
 			if (result == null) {
@@ -559,6 +527,7 @@ public class OpenSshConfigFile {
 		 *            to get the values of
 		 * @return a possibly empty list of values
 		 */
+		@Override
 		public List<String> getValues(String key) {
 			List<String> values = listOptions != null ? listOptions.get(key)
 					: null;
@@ -813,6 +782,7 @@ public class OpenSshConfigFile {
 		 *
 		 * @return all single-valued options
 		 */
+		@Override
 		@NonNull
 		public Map<String, String> getOptions() {
 			if (options == null) {
@@ -827,6 +797,7 @@ public class OpenSshConfigFile {
 		 *
 		 * @return all multi-valued options
 		 */
+		@Override
 		@NonNull
 		public Map<String, List<String>> getMultiValuedOptions() {
 			if (listOptions == null && multiOptions == null) {

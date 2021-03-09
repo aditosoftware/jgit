@@ -1,44 +1,11 @@
 /*
- * Copyright (C) 2008, Google Inc.
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2008, 2019 Google Inc. and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.util;
@@ -54,7 +21,15 @@ import org.eclipse.jgit.lib.Constants;
  */
 public abstract class QuotedString {
 	/** Quoting style that obeys the rules Git applies to file names */
-	public static final GitPathStyle GIT_PATH = new GitPathStyle();
+	public static final GitPathStyle GIT_PATH = new GitPathStyle(true);
+
+	/**
+	 * Quoting style that obeys the rules Git applies to file names when
+	 * {@code core.quotePath = false}.
+	 *
+	 * @since 5.6
+	 */
+	public static final QuotedString GIT_PATH_MINIMAL = new GitPathStyle(false);
 
 	/**
 	 * Quoting style used by the Bourne shell.
@@ -256,40 +231,48 @@ public abstract class QuotedString {
 			quote['"'] = '"';
 		}
 
+		private final boolean quoteHigh;
+
 		@Override
 		public String quote(String instr) {
-			if (instr.length() == 0)
+			if (instr.isEmpty()) {
 				return "\"\""; //$NON-NLS-1$
+			}
 			boolean reuse = true;
 			final byte[] in = Constants.encode(instr);
-			final StringBuilder r = new StringBuilder(2 + in.length);
-			r.append('"');
-			for (int i = 0; i < in.length; i++) {
-				final int c = in[i] & 0xff;
+			final byte[] out = new byte[4 * in.length + 2];
+			int o = 0;
+			out[o++] = '"';
+			for (byte element : in) {
+				final int c = element & 0xff;
 				if (c < quote.length) {
 					final byte style = quote[c];
 					if (style == 0) {
-						r.append((char) c);
+						out[o++] = (byte) c;
 						continue;
 					}
 					if (style > 0) {
 						reuse = false;
-						r.append('\\');
-						r.append((char) style);
+						out[o++] = '\\';
+						out[o++] = style;
 						continue;
 					}
+				} else if (!quoteHigh) {
+					out[o++] = (byte) c;
+					continue;
 				}
 
 				reuse = false;
-				r.append('\\');
-				r.append((char) (((c >> 6) & 03) + '0'));
-				r.append((char) (((c >> 3) & 07) + '0'));
-				r.append((char) (((c >> 0) & 07) + '0'));
+				out[o++] = '\\';
+				out[o++] = (byte) (((c >> 6) & 03) + '0');
+				out[o++] = (byte) (((c >> 3) & 07) + '0');
+				out[o++] = (byte) (((c >> 0) & 07) + '0');
 			}
-			if (reuse)
+			if (reuse) {
 				return instr;
-			r.append('"');
-			return r.toString();
+			}
+			out[o++] = '"';
+			return new String(out, 0, o, UTF_8);
 		}
 
 		@Override
@@ -375,8 +358,8 @@ public abstract class QuotedString {
 			return RawParseUtils.decode(UTF_8, r, 0, rPtr);
 		}
 
-		private GitPathStyle() {
-			// Singleton
+		private GitPathStyle(boolean doQuote) {
+			quoteHigh = doQuote;
 		}
 	}
 }

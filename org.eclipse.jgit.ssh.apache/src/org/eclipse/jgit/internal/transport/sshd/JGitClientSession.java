@@ -1,67 +1,40 @@
 /*
- * Copyright (C) 2018, 2019 Thomas Wolf <thomas.wolf@paranor.ch>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2018, 2019 Thomas Wolf <thomas.wolf@paranor.ch> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 package org.eclipse.jgit.internal.transport.sshd;
 
 import static java.text.MessageFormat.format;
+import static org.apache.sshd.core.CoreModuleProperties.MAX_IDENTIFICATION_SIZE;
 
 import java.io.IOException;
+import java.io.StreamCorruptedException;
 import java.net.SocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.PublicKey;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 import org.apache.sshd.client.ClientFactoryManager;
 import org.apache.sshd.client.config.hosts.HostConfigEntry;
 import org.apache.sshd.client.keyverifier.ServerKeyVerifier;
 import org.apache.sshd.client.session.ClientSessionImpl;
+import org.apache.sshd.common.AttributeRepository;
 import org.apache.sshd.common.FactoryManager;
-import org.apache.sshd.common.PropertyResolverUtils;
-import org.apache.sshd.common.SshException;
+import org.apache.sshd.common.PropertyResolver;
 import org.apache.sshd.common.config.keys.KeyUtils;
 import org.apache.sshd.common.io.IoSession;
 import org.apache.sshd.common.io.IoWriteFuture;
@@ -89,7 +62,8 @@ public class JGitClientSession extends ClientSessionImpl {
 	 * protocol version exchange. 64kb is what OpenSSH < 8.0 read; OpenSSH 8.0
 	 * changed it to 8Mb, but that seems excessive for the purpose stated in RFC
 	 * 4253. The Apache MINA sshd default in
-	 * {@link FactoryManager#DEFAULT_MAX_IDENTIFICATION_SIZE} is 16kb.
+	 * {@link org.apache.sshd.core.CoreModuleProperties#MAX_IDENTIFICATION_SIZE}
+	 * is 16kb.
 	 */
 	private static final int DEFAULT_MAX_IDENTIFICATION_SIZE = 64 * 1024;
 
@@ -179,9 +153,8 @@ public class JGitClientSession extends ClientSessionImpl {
 			} catch (Exception other) {
 				throw new IOException(other.getLocalizedMessage(), other);
 			}
-		} else {
-			return super.sendIdentification(ident);
 		}
+		return super.sendIdentification(ident);
 	}
 
 	@Override
@@ -205,9 +178,8 @@ public class JGitClientSession extends ClientSessionImpl {
 			} catch (Exception other) {
 				throw new IOException(other.getLocalizedMessage(), other);
 			}
-		} else {
-			return super.sendKexInit();
 		}
+		return super.sendKexInit();
 	}
 
 	/**
@@ -227,22 +199,6 @@ public class JGitClientSession extends ClientSessionImpl {
 	}
 
 	@Override
-	protected void checkKeys() throws SshException {
-		ServerKeyVerifier serverKeyVerifier = getServerKeyVerifier();
-		// The super implementation always uses
-		// getIoSession().getRemoteAddress(). In case of a proxy connection,
-		// that would be the address of the proxy!
-		SocketAddress remoteAddress = getConnectAddress();
-		PublicKey serverKey = getKex().getServerKey();
-		if (!serverKeyVerifier.verifyServerKey(this, remoteAddress,
-				serverKey)) {
-			throw new SshException(
-					org.apache.sshd.common.SshConstants.SSH2_DISCONNECT_HOST_KEY_NOT_VERIFIABLE,
-					SshdText.get().kexServerKeyInvalid);
-		}
-	}
-
-	@Override
 	protected String resolveAvailableSignaturesProposal(
 			FactoryManager manager) {
 		Set<String> defaultSignatures = new LinkedHashSet<>();
@@ -253,12 +209,13 @@ public class JGitClientSession extends ClientSessionImpl {
 				.getProperty(SshConstants.HOST_KEY_ALGORITHMS);
 		if (hostKeyAlgorithms != null && !hostKeyAlgorithms.isEmpty()) {
 			char first = hostKeyAlgorithms.charAt(0);
-			if (first == '+') {
+			switch (first) {
+			case '+':
 				// Additions make not much sense -- it's either in
 				// defaultSignatures already, or we have no implementation for
 				// it. No point in proposing it.
 				return String.join(",", defaultSignatures); //$NON-NLS-1$
-			} else if (first == '-') {
+			case '-':
 				// This takes wildcard patterns!
 				removeFromList(defaultSignatures,
 						SshConstants.HOST_KEY_ALGORITHMS,
@@ -271,7 +228,7 @@ public class JGitClientSession extends ClientSessionImpl {
 							hostKeyAlgorithms));
 				}
 				return String.join(",", defaultSignatures); //$NON-NLS-1$
-			} else {
+			default:
 				// Default is overridden -- only accept the ones for which we do
 				// have an implementation.
 				List<String> newNames = filteredList(defaultSignatures,
@@ -284,6 +241,7 @@ public class JGitClientSession extends ClientSessionImpl {
 				} else {
 					return String.join(",", newNames); //$NON-NLS-1$
 				}
+				break;
 			}
 		}
 		// No HostKeyAlgorithms; using default -- change order to put existing
@@ -342,18 +300,6 @@ public class JGitClientSession extends ClientSessionImpl {
 		return newNames;
 	}
 
-	@Override
-	protected boolean readIdentification(Buffer buffer) throws IOException {
-		// Propagate a failure from doReadIdentification.
-		// TODO: remove for sshd > 2.3.0; its doReadIdentification throws
-		// StreamCorruptedException instead of IllegalStateException.
-		try {
-			return super.readIdentification(buffer);
-		} catch (IllegalStateException e) {
-			throw new IOException(e.getLocalizedMessage(), e);
-		}
-	}
-
 	/**
 	 * Reads the RFC 4253, section 4.2 protocol version identification. The
 	 * Apache MINA sshd default implementation checks for NUL bytes also in any
@@ -369,20 +315,28 @@ public class JGitClientSession extends ClientSessionImpl {
 	 * @return the lines read, with the server identification line last, or
 	 *         {@code null} if no identification line was found and more bytes
 	 *         are needed
-	 *
+	 * @throws StreamCorruptedException
+	 *             if the identification is malformed
 	 * @see <a href="https://tools.ietf.org/html/rfc4253#section-4.2">RFC 4253,
 	 *      section 4.2</a>
 	 */
 	@Override
-	protected List<String> doReadIdentification(Buffer buffer, boolean server) {
+	protected List<String> doReadIdentification(Buffer buffer, boolean server)
+			throws StreamCorruptedException {
 		if (server) {
 			// Should never happen. No translation; internal bug.
 			throw new IllegalStateException(
 					"doReadIdentification of client called with server=true"); //$NON-NLS-1$
 		}
-		int maxIdentSize = PropertyResolverUtils.getIntProperty(this,
-				FactoryManager.MAX_IDENTIFICATION_SIZE,
-				DEFAULT_MAX_IDENTIFICATION_SIZE);
+		Integer maxIdentLength = MAX_IDENTIFICATION_SIZE.get(this).orElse(null);
+		int maxIdentSize;
+		if (maxIdentLength == null || maxIdentLength
+				.intValue() < DEFAULT_MAX_IDENTIFICATION_SIZE) {
+			maxIdentSize = DEFAULT_MAX_IDENTIFICATION_SIZE;
+			MAX_IDENTIFICATION_SIZE.set(this, Integer.valueOf(maxIdentSize));
+		} else {
+			maxIdentSize = maxIdentLength.intValue();
+		}
 		int current = buffer.rpos();
 		int end = current + buffer.available();
 		if (current >= end) {
@@ -412,12 +366,12 @@ public class JGitClientSession extends ClientSessionImpl {
 				ident.add(line);
 				if (line.startsWith("SSH-")) { //$NON-NLS-1$
 					if (hasNul) {
-						throw new IllegalStateException(
+						throw new StreamCorruptedException(
 								format(SshdText.get().serverIdWithNul,
 										escapeControls(line)));
 					}
 					if (line.length() + eol > 255) {
-						throw new IllegalStateException(
+						throw new StreamCorruptedException(
 								format(SshdText.get().serverIdTooLong,
 										escapeControls(line)));
 					}
@@ -439,7 +393,7 @@ public class JGitClientSession extends ClientSessionImpl {
 					log.debug(msg);
 					log.debug(buffer.toHex());
 				}
-				throw new IllegalStateException(msg);
+				throw new StreamCorruptedException(msg);
 			}
 		}
 		// Need more data
@@ -461,4 +415,122 @@ public class JGitClientSession extends ClientSessionImpl {
 		return b.toString();
 	}
 
+	@Override
+	public <T> T getAttribute(AttributeKey<T> key) {
+		T value = super.getAttribute(key);
+		if (value == null) {
+			IoSession ioSession = getIoSession();
+			if (ioSession != null) {
+				Object obj = ioSession.getAttribute(AttributeRepository.class);
+				if (obj instanceof AttributeRepository) {
+					AttributeRepository sessionAttributes = (AttributeRepository) obj;
+					value = sessionAttributes.resolveAttribute(key);
+				}
+			}
+		}
+		return value;
+	}
+
+	@Override
+	public PropertyResolver getParentPropertyResolver() {
+		IoSession ioSession = getIoSession();
+		if (ioSession != null) {
+			Object obj = ioSession.getAttribute(AttributeRepository.class);
+			if (obj instanceof PropertyResolver) {
+				return (PropertyResolver) obj;
+			}
+		}
+		return super.getParentPropertyResolver();
+	}
+
+	/**
+	 * An {@link AttributeRepository} that chains together two other attribute
+	 * sources in a hierarchy.
+	 */
+	public static class ChainingAttributes implements AttributeRepository {
+
+		private final AttributeRepository delegate;
+
+		private final AttributeRepository parent;
+
+		/**
+		 * Create a new {@link ChainingAttributes} attribute source.
+		 *
+		 * @param self
+		 *            to search for attributes first
+		 * @param parent
+		 *            to search for attributes if not found in {@code self}
+		 */
+		public ChainingAttributes(AttributeRepository self,
+				AttributeRepository parent) {
+			this.delegate = self;
+			this.parent = parent;
+		}
+
+		@Override
+		public int getAttributesCount() {
+			return delegate.getAttributesCount();
+		}
+
+		@Override
+		public <T> T getAttribute(AttributeKey<T> key) {
+			return delegate.getAttribute(Objects.requireNonNull(key));
+		}
+
+		@Override
+		public Collection<AttributeKey<?>> attributeKeys() {
+			return delegate.attributeKeys();
+		}
+
+		@Override
+		public <T> T resolveAttribute(AttributeKey<T> key) {
+			T value = getAttribute(Objects.requireNonNull(key));
+			if (value == null) {
+				return parent.getAttribute(key);
+			}
+			return value;
+		}
+	}
+
+	/**
+	 * A {@link ChainingAttributes} repository that doubles as a
+	 * {@link PropertyResolver}. The property map can be set via the attribute
+	 * key {@link SessionAttributes#PROPERTIES}.
+	 */
+	public static class SessionAttributes extends ChainingAttributes
+			implements PropertyResolver {
+
+		/** Key for storing a map of properties in the attributes. */
+		public static final AttributeKey<Map<String, Object>> PROPERTIES = new AttributeKey<>();
+
+		private final PropertyResolver parentProperties;
+
+		/**
+		 * Creates a new {@link SessionAttributes} attribute and property
+		 * source.
+		 *
+		 * @param self
+		 *            to search for attributes first
+		 * @param parent
+		 *            to search for attributes if not found in {@code self}
+		 * @param parentProperties
+		 *            to search for properties if not found in {@code self}
+		 */
+		public SessionAttributes(AttributeRepository self,
+				AttributeRepository parent, PropertyResolver parentProperties) {
+			super(self, parent);
+			this.parentProperties = parentProperties;
+		}
+
+		@Override
+		public PropertyResolver getParentPropertyResolver() {
+			return parentProperties;
+		}
+
+		@Override
+		public Map<String, Object> getProperties() {
+			Map<String, Object> props = getAttribute(PROPERTIES);
+			return props == null ? Collections.emptyMap() : props;
+		}
+	}
 }

@@ -1,45 +1,12 @@
 /*
  * Copyright (C) 2015, Matthias Sohn <matthias.sohn@sap.com>
- * Copyright (C) 2015, Sasa Zivkov <sasa.zivkov@sap.com>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2015, Sasa Zivkov <sasa.zivkov@sap.com> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 package org.eclipse.jgit.lfs.server.s3;
 
@@ -49,6 +16,7 @@ package org.eclipse.jgit.lfs.server.s3;
  * @since 4.3
  */
 public class S3Config {
+	private final String hostname;
 	private final String region;
 	private final String bucket;
 	private final String storageClass;
@@ -56,6 +24,44 @@ public class S3Config {
 	private final String secretKey;
 	private final int expirationSeconds;
 	private final boolean disableSslVerify;
+
+	/**
+	 * <p>
+	 * Constructor for S3Config.
+	 * </p>
+	 *
+	 * @param hostname
+	 *            S3 API host
+	 * @param region
+	 *            AWS region
+	 * @param bucket
+	 *            S3 storage bucket
+	 * @param storageClass
+	 *            S3 storage class
+	 * @param accessKey
+	 *            access key for authenticating to AWS
+	 * @param secretKey
+	 *            secret key for authenticating to AWS
+	 * @param expirationSeconds
+	 *            period in seconds after which requests signed for this bucket
+	 *            will expire
+	 * @param disableSslVerify
+	 *            if {@code true} disable Amazon server certificate and hostname
+	 *            verification
+	 * @since 5.8
+	 */
+	public S3Config(String hostname, String region, String bucket, String storageClass,
+			String accessKey, String secretKey, int expirationSeconds,
+			boolean disableSslVerify) {
+		this.hostname = hostname;
+		this.region = region;
+		this.bucket = bucket;
+		this.storageClass = storageClass;
+		this.accessKey = accessKey;
+		this.secretKey = secretKey;
+		this.expirationSeconds = expirationSeconds;
+		this.disableSslVerify = disableSslVerify;
+	}
 
 	/**
 	 * <p>Constructor for S3Config.</p>
@@ -80,13 +86,19 @@ public class S3Config {
 	public S3Config(String region, String bucket, String storageClass,
 			String accessKey, String secretKey, int expirationSeconds,
 			boolean disableSslVerify) {
-		this.region = region;
-		this.bucket = bucket;
-		this.storageClass = storageClass;
-		this.accessKey = accessKey;
-		this.secretKey = secretKey;
-		this.expirationSeconds = expirationSeconds;
-		this.disableSslVerify = disableSslVerify;
+		this(String.format("s3-%s.amazonaws.com", region), region, bucket, //$NON-NLS-1$
+				storageClass, accessKey, secretKey, expirationSeconds,
+				disableSslVerify);
+	}
+
+	/**
+	 * Get the <code>hostname</code>.
+	 *
+	 * @return Get the S3 API host
+	 * @since 5.8
+	 */
+	public String getHostname() {
+		return hostname;
 	}
 
 	/**

@@ -2,46 +2,13 @@
  * Copyright (C) 2007, Dave Watson <dwatson@mimvista.com>
  * Copyright (C) 2007-2010, Robin Rosenberg <robin.rosenberg@dewire.com>
  * Copyright (C) 2006-2008, Shawn O. Pearce <spearce@spearce.org>
- * Copyright (C) 2010, Chris Aniszczyk <caniszczyk@gmail.com>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2010, Chris Aniszczyk <caniszczyk@gmail.com> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.internal.storage.file;
@@ -52,6 +19,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -86,13 +54,9 @@ import org.eclipse.jgit.test.resources.SampleDataRepositoryTestCase;
 import org.eclipse.jgit.util.FS;
 import org.eclipse.jgit.util.FileUtils;
 import org.eclipse.jgit.util.IO;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.ExpectedException;
 
 public class T0003_BasicTest extends SampleDataRepositoryTestCase {
-	@Rule
-	public ExpectedException expectedException = ExpectedException.none();
 
 	@Test
 	public void test001_Initalize() {
@@ -145,13 +109,14 @@ public class T0003_BasicTest extends SampleDataRepositoryTestCase {
 		}
 
 		File theDir = new File(repo1Parent, Constants.DOT_GIT);
-		FileRepository r = (FileRepository) new FileRepositoryBuilder()
-				.setGitDir(theDir).build();
-		assertEqualsPath(theDir, r.getDirectory());
-		assertEqualsPath(repo1Parent, r.getWorkTree());
-		assertEqualsPath(new File(theDir, "index"), r.getIndexFile());
-		assertEqualsPath(new File(theDir, Constants.OBJECTS), r.getObjectDatabase()
-				.getDirectory());
+		try (FileRepository r = (FileRepository) new FileRepositoryBuilder()
+				.setGitDir(theDir).build()) {
+			assertEqualsPath(theDir, r.getDirectory());
+			assertEqualsPath(repo1Parent, r.getWorkTree());
+			assertEqualsPath(new File(theDir, "index"), r.getIndexFile());
+			assertEqualsPath(new File(theDir, Constants.OBJECTS),
+					r.getObjectDatabase().getDirectory());
+		}
 	}
 
 	/**
@@ -170,14 +135,15 @@ public class T0003_BasicTest extends SampleDataRepositoryTestCase {
 		}
 
 		File theDir = new File(repo1Parent, Constants.DOT_GIT);
-		FileRepository r = (FileRepository) new FileRepositoryBuilder()
+		try (FileRepository r = (FileRepository) new FileRepositoryBuilder()
 				.setGitDir(theDir).setWorkTree(repo1Parent.getParentFile())
-				.build();
-		assertEqualsPath(theDir, r.getDirectory());
-		assertEqualsPath(repo1Parent.getParentFile(), r.getWorkTree());
-		assertEqualsPath(new File(theDir, "index"), r.getIndexFile());
-		assertEqualsPath(new File(theDir, Constants.OBJECTS), r.getObjectDatabase()
-				.getDirectory());
+				.build()) {
+			assertEqualsPath(theDir, r.getDirectory());
+			assertEqualsPath(repo1Parent.getParentFile(), r.getWorkTree());
+			assertEqualsPath(new File(theDir, "index"), r.getIndexFile());
+			assertEqualsPath(new File(theDir, Constants.OBJECTS),
+					r.getObjectDatabase().getDirectory());
+		}
 	}
 
 	/**
@@ -195,13 +161,14 @@ public class T0003_BasicTest extends SampleDataRepositoryTestCase {
 		}
 
 		File theDir = new File(repo1Parent, Constants.DOT_GIT);
-		FileRepository r = (FileRepository) new FileRepositoryBuilder()
-				.setWorkTree(repo1Parent).build();
-		assertEqualsPath(theDir, r.getDirectory());
-		assertEqualsPath(repo1Parent, r.getWorkTree());
-		assertEqualsPath(new File(theDir, "index"), r.getIndexFile());
-		assertEqualsPath(new File(theDir, Constants.OBJECTS), r.getObjectDatabase()
-				.getDirectory());
+		try (FileRepository r = (FileRepository) new FileRepositoryBuilder()
+				.setWorkTree(repo1Parent).build()) {
+			assertEqualsPath(theDir, r.getDirectory());
+			assertEqualsPath(repo1Parent, r.getWorkTree());
+			assertEqualsPath(new File(theDir, "index"), r.getIndexFile());
+			assertEqualsPath(new File(theDir, Constants.OBJECTS),
+					r.getObjectDatabase().getDirectory());
+		}
 	}
 
 	/**
@@ -224,13 +191,14 @@ public class T0003_BasicTest extends SampleDataRepositoryTestCase {
 		}
 
 		File theDir = new File(repo1Parent, Constants.DOT_GIT);
-		FileRepository r = (FileRepository) new FileRepositoryBuilder()
-				.setGitDir(theDir).build();
-		assertEqualsPath(theDir, r.getDirectory());
-		assertEqualsPath(workdir, r.getWorkTree());
-		assertEqualsPath(new File(theDir, "index"), r.getIndexFile());
-		assertEqualsPath(new File(theDir, Constants.OBJECTS), r.getObjectDatabase()
-				.getDirectory());
+		try (FileRepository r = (FileRepository) new FileRepositoryBuilder()
+				.setGitDir(theDir).build()) {
+			assertEqualsPath(theDir, r.getDirectory());
+			assertEqualsPath(workdir, r.getWorkTree());
+			assertEqualsPath(new File(theDir, "index"), r.getIndexFile());
+			assertEqualsPath(new File(theDir, Constants.OBJECTS),
+					r.getObjectDatabase().getDirectory());
+		}
 	}
 
 	/**
@@ -253,13 +221,14 @@ public class T0003_BasicTest extends SampleDataRepositoryTestCase {
 		}
 
 		File theDir = new File(repo1Parent, Constants.DOT_GIT);
-		FileRepository r = (FileRepository) new FileRepositoryBuilder()
-				.setGitDir(theDir).build();
-		assertEqualsPath(theDir, r.getDirectory());
-		assertEqualsPath(workdir, r.getWorkTree());
-		assertEqualsPath(new File(theDir, "index"), r.getIndexFile());
-		assertEqualsPath(new File(theDir, Constants.OBJECTS), r.getObjectDatabase()
-				.getDirectory());
+		try (FileRepository r = (FileRepository) new FileRepositoryBuilder()
+				.setGitDir(theDir).build()) {
+			assertEqualsPath(theDir, r.getDirectory());
+			assertEqualsPath(workdir, r.getWorkTree());
+			assertEqualsPath(new File(theDir, "index"), r.getIndexFile());
+			assertEqualsPath(new File(theDir, Constants.OBJECTS),
+					r.getObjectDatabase().getDirectory());
+		}
 	}
 
 	/**
@@ -306,17 +275,20 @@ public class T0003_BasicTest extends SampleDataRepositoryTestCase {
 		// open when we create it we won't write the object file out as a loose
 		// object (as it already exists in the pack).
 		//
-		final Repository newdb = createBareRepository();
-		try (ObjectInserter oi = newdb.newObjectInserter()) {
-			final ObjectId treeId = oi.insert(new TreeFormatter());
-			assertEquals("4b825dc642cb6eb9a060e54bf8d69288fbee4904",
-					treeId.name());
-		}
+		try (Repository newdb = createBareRepository()) {
+			try (ObjectInserter oi = newdb.newObjectInserter()) {
+				final ObjectId treeId = oi.insert(new TreeFormatter());
+				assertEquals("4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+						treeId.name());
+			}
 
-		final File o = new File(new File(new File(newdb.getDirectory(),
-				Constants.OBJECTS), "4b"), "825dc642cb6eb9a060e54bf8d69288fbee4904");
-		assertTrue("Exists " + o, o.isFile());
-		assertTrue("Read-only " + o, !o.canWrite());
+			final File o = new File(
+					new File(new File(newdb.getDirectory(), Constants.OBJECTS),
+							"4b"),
+					"825dc642cb6eb9a060e54bf8d69288fbee4904");
+			assertTrue("Exists " + o, o.isFile());
+			assertTrue("Read-only " + o, !o.canWrite());
+		}
 	}
 
 	@Test
@@ -336,10 +308,10 @@ public class T0003_BasicTest extends SampleDataRepositoryTestCase {
 		// We won't create a tree entry with an empty filename
 		//
 		final TreeFormatter formatter = new TreeFormatter();
-		expectedException.expect(IllegalArgumentException.class);
-		expectedException.expectMessage(JGitText.get().invalidTreeZeroLengthName);
-		formatter.append("", FileMode.TREE,
-				ObjectId.fromString("4b825dc642cb6eb9a060e54bf8d69288fbee4904"));
+		assertThrows(JGitText.get().invalidTreeZeroLengthName,
+				IllegalArgumentException.class,
+				() -> formatter.append("", FileMode.TREE, ObjectId.fromString(
+						"4b825dc642cb6eb9a060e54bf8d69288fbee4904")));
 	}
 
 	@Test

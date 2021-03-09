@@ -1,44 +1,11 @@
 /*
- * Copyright (C) 2011-2012, GitHub Inc.
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2011-2012, GitHub Inc. and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 package org.eclipse.jgit.api;
 
@@ -49,6 +16,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import static org.junit.Assume.assumeTrue;
 
 import java.io.File;
 import java.util.Date;
@@ -148,9 +116,10 @@ public class CommitCommandTest extends RepositoryTestCase {
 		writeTrashFile(path, "content");
 		git.add().addFilepattern(path).call();
 		RevCommit commit1 = git.commit().setMessage("commit").call();
-		TreeWalk walk = TreeWalk.forPath(db, path, commit1.getTree());
-		assertNotNull(walk);
-		assertEquals(FileMode.EXECUTABLE_FILE, walk.getFileMode(0));
+		try (TreeWalk walk = TreeWalk.forPath(db, path, commit1.getTree())) {
+			assertNotNull(walk);
+			assertEquals(FileMode.EXECUTABLE_FILE, walk.getFileMode(0));
+		}
 
 		FS nonExecutableFs = new FS() {
 
@@ -204,9 +173,10 @@ public class CommitCommandTest extends RepositoryTestCase {
 		writeTrashFile(path, "content2");
 		RevCommit commit2 = git2.commit().setOnly(path).setMessage("commit2")
 				.call();
-		walk = TreeWalk.forPath(db, path, commit2.getTree());
-		assertNotNull(walk);
-		assertEquals(FileMode.EXECUTABLE_FILE, walk.getFileMode(0));
+		try (TreeWalk walk = TreeWalk.forPath(db, path, commit2.getTree())) {
+			assertNotNull(walk);
+			assertEquals(FileMode.EXECUTABLE_FILE, walk.getFileMode(0));
+		}
 	}
 
 	@Test
@@ -225,15 +195,16 @@ public class CommitCommandTest extends RepositoryTestCase {
 			assertNotNull(repo);
 			addRepoToClose(repo);
 
-			SubmoduleWalk generator = SubmoduleWalk.forIndex(db);
-			assertTrue(generator.next());
-			assertEquals(path, generator.getPath());
-			assertEquals(commit, generator.getObjectId());
-			assertEquals(uri, generator.getModulesUrl());
-			assertEquals(path, generator.getModulesPath());
-			assertEquals(uri, generator.getConfigUrl());
-			try (Repository subModRepo = generator.getRepository()) {
-				assertNotNull(subModRepo);
+			try (SubmoduleWalk generator = SubmoduleWalk.forIndex(db)) {
+				assertTrue(generator.next());
+				assertEquals(path, generator.getPath());
+				assertEquals(commit, generator.getObjectId());
+				assertEquals(uri, generator.getModulesUrl());
+				assertEquals(path, generator.getModulesPath());
+				assertEquals(uri, generator.getConfigUrl());
+				try (Repository subModRepo = generator.getRepository()) {
+					assertNotNull(subModRepo);
+				}
 			}
 			assertEquals(commit, repo.resolve(Constants.HEAD));
 
@@ -275,15 +246,16 @@ public class CommitCommandTest extends RepositoryTestCase {
 			assertNotNull(repo);
 			addRepoToClose(repo);
 
-			SubmoduleWalk generator = SubmoduleWalk.forIndex(db);
-			assertTrue(generator.next());
-			assertEquals(path, generator.getPath());
-			assertEquals(commit2, generator.getObjectId());
-			assertEquals(uri, generator.getModulesUrl());
-			assertEquals(path, generator.getModulesPath());
-			assertEquals(uri, generator.getConfigUrl());
-			try (Repository subModRepo = generator.getRepository()) {
-				assertNotNull(subModRepo);
+			try (SubmoduleWalk generator = SubmoduleWalk.forIndex(db)) {
+				assertTrue(generator.next());
+				assertEquals(path, generator.getPath());
+				assertEquals(commit2, generator.getObjectId());
+				assertEquals(uri, generator.getModulesUrl());
+				assertEquals(path, generator.getModulesPath());
+				assertEquals(uri, generator.getConfigUrl());
+				try (Repository subModRepo = generator.getRepository()) {
+					assertNotNull(subModRepo);
+				}
 			}
 			assertEquals(commit2, repo.resolve(Constants.HEAD));
 
@@ -629,38 +601,61 @@ public class CommitCommandTest extends RepositoryTestCase {
 		}
 	}
 
-	@Test
-	public void commitWithAutoCrlfAndNonNormalizedIndex() throws Exception {
+	private void nonNormalizedIndexTest(boolean executable) throws Exception {
+		String mode = executable ? "100755" : "100644";
 		try (Git git = new Git(db)) {
 			// Commit a file with CR/LF into the index
 			FileBasedConfig config = db.getConfig();
 			config.setString("core", null, "autocrlf", "false");
 			config.save();
-			writeTrashFile("file.txt", "line 1\r\nline 2\r\n");
+			File testFile = writeTrashFile("file.txt", "line 1\r\nline 2\r\n");
+			if (executable) {
+				FS.DETECTED.setExecute(testFile, true);
+			}
 			git.add().addFilepattern("file.txt").call();
 			git.commit().setMessage("Initial").call();
 			assertEquals(
-					"[file.txt, mode:100644, content:line 1\r\nline 2\r\n]",
+					"[file.txt, mode:" + mode
+							+ ", content:line 1\r\nline 2\r\n]",
 					indexState(CONTENT));
 			config.setString("core", null, "autocrlf", "true");
 			config.save();
 			writeTrashFile("file.txt", "line 1\r\nline 1.5\r\nline 2\r\n");
-			writeTrashFile("file2.txt", "new\r\nfile\r\n");
+			testFile = writeTrashFile("file2.txt", "new\r\nfile\r\n");
+			if (executable) {
+				FS.DETECTED.setExecute(testFile, true);
+			}
 			git.add().addFilepattern("file.txt").addFilepattern("file2.txt")
 					.call();
 			git.commit().setMessage("Second").call();
 			assertEquals(
-					"[file.txt, mode:100644, content:line 1\r\nline 1.5\r\nline 2\r\n]"
-							+ "[file2.txt, mode:100644, content:new\nfile\n]",
+					"[file.txt, mode:" + mode
+							+ ", content:line 1\r\nline 1.5\r\nline 2\r\n]"
+							+ "[file2.txt, mode:" + mode
+							+ ", content:new\nfile\n]",
 					indexState(CONTENT));
 			writeTrashFile("file2.txt", "new\r\nfile\r\ncontent\r\n");
 			git.add().addFilepattern("file2.txt").call();
 			git.commit().setMessage("Third").call();
 			assertEquals(
-					"[file.txt, mode:100644, content:line 1\r\nline 1.5\r\nline 2\r\n]"
-							+ "[file2.txt, mode:100644, content:new\nfile\ncontent\n]",
+					"[file.txt, mode:" + mode
+							+ ", content:line 1\r\nline 1.5\r\nline 2\r\n]"
+							+ "[file2.txt, mode:" + mode
+							+ ", content:new\nfile\ncontent\n]",
 					indexState(CONTENT));
 		}
+	}
+
+	@Test
+	public void commitWithAutoCrlfAndNonNormalizedIndex() throws Exception {
+		nonNormalizedIndexTest(false);
+	}
+
+	@Test
+	public void commitExecutableWithAutoCrlfAndNonNormalizedIndex()
+			throws Exception {
+		assumeTrue(FS.DETECTED.supportsExecute());
+		nonNormalizedIndexTest(true);
 	}
 
 	@Test

@@ -1,44 +1,11 @@
 /*
- * Copyright (C) 2010-2012, Christian Halstrick <christian.halstrick@sap.com>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2010-2012, Christian Halstrick <christian.halstrick@sap.com> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 package org.eclipse.jgit.api;
 
@@ -60,6 +27,7 @@ import org.eclipse.jgit.api.errors.JGitInternalException;
 import org.eclipse.jgit.api.errors.NoFilepatternException;
 import org.eclipse.jgit.api.errors.NoHeadException;
 import org.eclipse.jgit.api.errors.NoMessageException;
+import org.eclipse.jgit.api.errors.ServiceUnavailableException;
 import org.eclipse.jgit.api.errors.UnmergedPathsException;
 import org.eclipse.jgit.api.errors.UnsupportedSigningFormatException;
 import org.eclipse.jgit.api.errors.WrongRepositoryStateException;
@@ -79,6 +47,7 @@ import org.eclipse.jgit.lib.Constants;
 import org.eclipse.jgit.lib.FileMode;
 import org.eclipse.jgit.lib.GpgConfig;
 import org.eclipse.jgit.lib.GpgConfig.GpgFormat;
+import org.eclipse.jgit.lib.GpgObjectSigner;
 import org.eclipse.jgit.lib.GpgSigner;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.ObjectInserter;
@@ -88,7 +57,6 @@ import org.eclipse.jgit.lib.RefUpdate;
 import org.eclipse.jgit.lib.RefUpdate.Result;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.lib.RepositoryState;
-import org.eclipse.jgit.lib.internal.BouncyCastleGpgSigner;
 import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.revwalk.RevObject;
 import org.eclipse.jgit.revwalk.RevTag;
@@ -143,6 +111,8 @@ public class CommitCommand extends GitCommand<RevCommit> {
 
 	private HashMap<String, PrintStream> hookOutRedirect = new HashMap<>(3);
 
+	private HashMap<String, PrintStream> hookErrRedirect = new HashMap<>(3);
+
 	private Boolean allowEmpty;
 
 	private Boolean signCommit;
@@ -150,6 +120,8 @@ public class CommitCommand extends GitCommand<RevCommit> {
 	private String signingKey;
 
 	private GpgSigner gpgSigner;
+
+	private GpgConfig gpgConfig;
 
 	private CredentialsProvider credentialsProvider;
 
@@ -171,12 +143,16 @@ public class CommitCommand extends GitCommand<RevCommit> {
 	 * collected by the setter methods of this class. Each instance of this
 	 * class should only be used for one invocation of the command (means: one
 	 * call to {@link #call()})
+	 *
+	 * @throws ServiceUnavailableException
+	 *             if signing service is not available e.g. since it isn't
+	 *             installed
 	 */
 	@Override
-	public RevCommit call() throws GitAPIException, NoHeadException,
-			NoMessageException, UnmergedPathsException,
-			ConcurrentRefUpdateException, WrongRepositoryStateException,
-			AbortedByHookException {
+	public RevCommit call() throws GitAPIException, AbortedByHookException,
+			ConcurrentRefUpdateException, NoHeadException, NoMessageException,
+			ServiceUnavailableException, UnmergedPathsException,
+			WrongRepositoryStateException {
 		checkCallable();
 		Collections.sort(only);
 
@@ -188,7 +164,8 @@ public class CommitCommand extends GitCommand<RevCommit> {
 						state.name()));
 
 			if (!noVerify) {
-				Hooks.preCommit(repo, hookOutRedirect.get(PreCommitHook.NAME))
+				Hooks.preCommit(repo, hookOutRedirect.get(PreCommitHook.NAME),
+						hookErrRedirect.get(PreCommitHook.NAME))
 						.call();
 			}
 
@@ -230,7 +207,8 @@ public class CommitCommand extends GitCommand<RevCommit> {
 			if (!noVerify) {
 				message = Hooks
 						.commitMsg(repo,
-								hookOutRedirect.get(CommitMsgHook.NAME))
+								hookOutRedirect.get(CommitMsgHook.NAME),
+								hookErrRedirect.get(CommitMsgHook.NAME))
 						.setCommitMessage(message).call();
 			}
 
@@ -268,8 +246,22 @@ public class CommitCommand extends GitCommand<RevCommit> {
 				commit.setTreeId(indexTreeId);
 
 				if (signCommit.booleanValue()) {
-					gpgSigner.sign(commit, signingKey, committer,
-							credentialsProvider);
+					if (gpgSigner == null) {
+						throw new ServiceUnavailableException(
+								JGitText.get().signingServiceUnavailable);
+					}
+					if (gpgSigner instanceof GpgObjectSigner) {
+						((GpgObjectSigner) gpgSigner).signObject(commit,
+								signingKey, committer, credentialsProvider,
+								gpgConfig);
+					} else {
+						if (gpgConfig.getKeyFormat() != GpgFormat.OPENPGP) {
+							throw new UnsupportedSigningFormatException(JGitText
+									.get().onlyOpenPgpSupportedForSigning);
+						}
+						gpgSigner.sign(commit, signingKey, committer,
+								credentialsProvider);
+					}
 				}
 
 				ObjectId commitId = odi.insert(commit);
@@ -311,7 +303,8 @@ public class CommitCommand extends GitCommand<RevCommit> {
 						repo.writeRevertHead(null);
 					}
 					Hooks.postCommit(repo,
-							hookOutRedirect.get(PostCommitHook.NAME)).call();
+							hookOutRedirect.get(PostCommitHook.NAME),
+							hookErrRedirect.get(PostCommitHook.NAME)).call();
 
 					return revCommit;
 				}
@@ -519,7 +512,7 @@ public class CommitCommand extends GitCommand<RevCommit> {
 			int position = Collections.binarySearch(only, p);
 			if (position >= 0)
 				return position;
-			int l = p.lastIndexOf("/"); //$NON-NLS-1$
+			int l = p.lastIndexOf('/');
 			if (l < 1)
 				break;
 			p = p.substring(0, l);
@@ -538,7 +531,8 @@ public class CommitCommand extends GitCommand<RevCommit> {
 	 *
 	 * @throws NoMessageException
 	 *             if the commit message has not been specified
-	 * @throws UnsupportedSigningFormatException if the configured gpg.format is not supported
+	 * @throws UnsupportedSigningFormatException
+	 *             if the configured gpg.format is not supported
 	 */
 	private void processOptions(RepositoryState state, RevWalk rw)
 			throws NoMessageException, UnsupportedSigningFormatException {
@@ -595,7 +589,9 @@ public class CommitCommand extends GitCommand<RevCommit> {
 			// an explicit message
 			throw new NoMessageException(JGitText.get().commitMessageNotSpecified);
 
-		GpgConfig gpgConfig = new GpgConfig(repo.getConfig());
+		if (gpgConfig == null) {
+			gpgConfig = new GpgConfig(repo.getConfig());
+		}
 		if (signCommit == null) {
 			signCommit = gpgConfig.isSignCommits() ? Boolean.TRUE
 					: Boolean.FALSE;
@@ -604,14 +600,7 @@ public class CommitCommand extends GitCommand<RevCommit> {
 			signingKey = gpgConfig.getSigningKey();
 		}
 		if (gpgSigner == null) {
-			if (gpgConfig.getKeyFormat() != GpgFormat.OPENPGP) {
-				throw new UnsupportedSigningFormatException(
-						JGitText.get().onlyOpenPgpSupportedForSigning);
-			}
 			gpgSigner = GpgSigner.getDefault();
-			if (gpgSigner == null) {
-				gpgSigner = new BouncyCastleGpgSigner();
-			}
 		}
 	}
 
@@ -891,6 +880,23 @@ public class CommitCommand extends GitCommand<RevCommit> {
 	}
 
 	/**
+	 * Set the error stream for all hook scripts executed by this command
+	 * (pre-commit, commit-msg, post-commit). If not set it defaults to
+	 * {@code System.err}.
+	 *
+	 * @param hookStdErr
+	 *            the error stream for hook scripts executed by this command
+	 * @return {@code this}
+	 * @since 5.6
+	 */
+	public CommitCommand setHookErrorStream(PrintStream hookStdErr) {
+		setHookErrorStream(PreCommitHook.NAME, hookStdErr);
+		setHookErrorStream(CommitMsgHook.NAME, hookStdErr);
+		setHookErrorStream(PostCommitHook.NAME, hookStdErr);
+		return this;
+	}
+
+	/**
 	 * Set the output stream for a selected hook script executed by this command
 	 * (pre-commit, commit-msg, post-commit). If not set it defaults to
 	 * {@code System.out}.
@@ -912,6 +918,30 @@ public class CommitCommand extends GitCommand<RevCommit> {
 							hookName));
 		}
 		hookOutRedirect.put(hookName, hookStdOut);
+		return this;
+	}
+
+	/**
+	 * Set the error stream for a selected hook script executed by this command
+	 * (pre-commit, commit-msg, post-commit). If not set it defaults to
+	 * {@code System.err}.
+	 *
+	 * @param hookName
+	 *            name of the hook to set the output stream for
+	 * @param hookStdErr
+	 *            the output stream to use for the selected hook
+	 * @return {@code this}
+	 * @since 5.6
+	 */
+	public CommitCommand setHookErrorStream(String hookName,
+			PrintStream hookStdErr) {
+		if (!(PreCommitHook.NAME.equals(hookName)
+				|| CommitMsgHook.NAME.equals(hookName)
+				|| PostCommitHook.NAME.equals(hookName))) {
+			throw new IllegalArgumentException(MessageFormat
+					.format(JGitText.get().illegalHookName, hookName));
+		}
+		hookErrRedirect.put(hookName, hookStdErr);
 		return this;
 	}
 
@@ -950,6 +980,36 @@ public class CommitCommand extends GitCommand<RevCommit> {
 	public CommitCommand setSign(Boolean sign) {
 		checkCallable();
 		this.signCommit = sign;
+		return this;
+	}
+
+	/**
+	 * Sets the {@link GpgSigner} to use if the commit is to be signed.
+	 *
+	 * @param signer
+	 *            to use; if {@code null}, the default signer will be used
+	 * @return {@code this}
+	 * @since 5.11
+	 */
+	public CommitCommand setGpgSigner(GpgSigner signer) {
+		checkCallable();
+		this.gpgSigner = signer;
+		return this;
+	}
+
+	/**
+	 * Sets an external {@link GpgConfig} to use. Whether it will be used is at
+	 * the discretion of the {@link #setGpgSigner(GpgSigner)}.
+	 *
+	 * @param config
+	 *            to set; if {@code null}, the config will be loaded from the
+	 *            git config of the repository
+	 * @return {@code this}
+	 * @since 5.11
+	 */
+	public CommitCommand setGpgConfig(GpgConfig config) {
+		checkCallable();
+		this.gpgConfig = config;
 		return this;
 	}
 

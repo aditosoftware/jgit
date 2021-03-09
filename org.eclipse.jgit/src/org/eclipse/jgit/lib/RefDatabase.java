@@ -1,44 +1,11 @@
 /*
- * Copyright (C) 2010, 2013 Google Inc.
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2010, 2013 Google Inc. and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.lib;
@@ -54,6 +21,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
 import org.eclipse.jgit.annotations.NonNull;
 import org.eclipse.jgit.annotations.Nullable;
 
@@ -447,6 +417,31 @@ public abstract class RefDatabase {
 	}
 
 	/**
+	 * Returns refs whose names start with a given prefix excluding all refs that
+	 * start with one of the given prefixes.
+	 *
+	 * <p>
+	 * The default implementation is not efficient. Implementors of {@link RefDatabase}
+	 * should override this method directly if a better implementation is possible.
+	 * 
+	 * @param include string that names of refs should start with; may be empty.
+	 * @param excludes strings that names of refs can't start with; may be empty.
+	 * @return immutable list of refs whose names start with {@code prefix} and none
+	 *         of the strings in {@code exclude}.
+	 * @throws java.io.IOException the reference space cannot be accessed.
+	 * @since 5.11
+	 */
+	@NonNull
+	public List<Ref> getRefsByPrefixWithExclusions(String include, Set<String> excludes)
+			throws IOException {
+		Stream<Ref> refs = getRefs(include).values().stream();
+		for(String exclude: excludes) {
+			refs = refs.filter(r -> !r.getName().startsWith(exclude));
+		}
+		return Collections.unmodifiableList(refs.collect(Collectors.toList()));
+	}
+
+	/**
 	 * Returns refs whose names start with one of the given prefixes.
 	 * <p>
 	 * The default implementation uses {@link #getRefsByPrefix(String)}.
@@ -474,7 +469,7 @@ public abstract class RefDatabase {
 
 	/**
 	 * Returns all refs that resolve directly to the given {@link ObjectId}.
-	 * Includes peeled {@linkObjectId}s. This is the inverse lookup of
+	 * Includes peeled {@link ObjectId}s. This is the inverse lookup of
 	 * {@link #exactRef(String...)}.
 	 *
 	 * <p>
@@ -494,6 +489,20 @@ public abstract class RefDatabase {
 	public Set<Ref> getTipsWithSha1(ObjectId id) throws IOException {
 		return getRefs().stream().filter(r -> id.equals(r.getObjectId())
 				|| id.equals(r.getPeeledObjectId())).collect(toSet());
+	}
+
+	/**
+	 * If the ref database does not support fast inverse queries, it may
+	 * be advantageous to build a complete SHA1 to ref map in advance for
+	 * multiple uses. To let applications decide on this decision,
+	 * this function indicates whether the inverse map is available.
+	 *
+	 * @return whether this RefDatabase supports fast inverse ref queries.
+	 * @throws IOException on I/O problems.
+	 * @since 5.6
+	 */
+	public boolean hasFastTipsWithSha1() throws IOException {
+		return false;
 	}
 
 	/**

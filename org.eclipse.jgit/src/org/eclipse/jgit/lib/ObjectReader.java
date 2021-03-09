@@ -1,44 +1,11 @@
 /*
- * Copyright (C) 2010, Google Inc.
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2010, Google Inc. and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.lib;
@@ -50,9 +17,18 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 
+import org.eclipse.jgit.annotations.NonNull;
 import org.eclipse.jgit.annotations.Nullable;
 import org.eclipse.jgit.errors.IncorrectObjectTypeException;
 import org.eclipse.jgit.errors.MissingObjectException;
+import org.eclipse.jgit.internal.revwalk.BitmappedObjectReachabilityChecker;
+import org.eclipse.jgit.internal.revwalk.BitmappedReachabilityChecker;
+import org.eclipse.jgit.internal.revwalk.PedestrianObjectReachabilityChecker;
+import org.eclipse.jgit.internal.revwalk.PedestrianReachabilityChecker;
+import org.eclipse.jgit.revwalk.ObjectReachabilityChecker;
+import org.eclipse.jgit.revwalk.ObjectWalk;
+import org.eclipse.jgit.revwalk.ReachabilityChecker;
+import org.eclipse.jgit.revwalk.RevWalk;
 
 /**
  * Reads an {@link org.eclipse.jgit.lib.ObjectDatabase} for a single thread.
@@ -293,9 +269,8 @@ public abstract class ObjectReader implements AutoCloseable {
 				if (idItr.hasNext()) {
 					cur = idItr.next();
 					return true;
-				} else {
-					return false;
 				}
+				return false;
 			}
 
 			@Override
@@ -383,9 +358,8 @@ public abstract class ObjectReader implements AutoCloseable {
 					cur = idItr.next();
 					sz = getObjectSize(cur, OBJ_ANY);
 					return true;
-				} else {
-					return false;
 				}
+				return false;
 			}
 
 			@Override
@@ -443,6 +417,54 @@ public abstract class ObjectReader implements AutoCloseable {
 	}
 
 	/**
+	 * Create a reachability checker that will use bitmaps if possible.
+	 *
+	 * @param rw
+	 *            revwalk for use by the reachability checker
+	 * @return the most efficient reachability checker for this repository.
+	 * @throws IOException
+	 *             if it cannot open any of the underlying indices.
+	 *
+	 * @since 5.11
+	 */
+	@NonNull
+	public ReachabilityChecker createReachabilityChecker(RevWalk rw)
+			throws IOException {
+		if (getBitmapIndex() != null) {
+			return new BitmappedReachabilityChecker(rw);
+		}
+
+		return new PedestrianReachabilityChecker(true, rw);
+	}
+
+	/**
+	 * Create an object reachability checker that will use bitmaps if possible.
+	 *
+	 * This reachability checker accepts any object as target. For checks
+	 * exclusively between commits, use
+	 * {@link #createReachabilityChecker(RevWalk)}.
+	 *
+	 * @param ow
+	 *            objectwalk for use by the reachability checker
+	 * @return the most efficient object reachability checker for this
+	 *         repository.
+	 *
+	 * @throws IOException
+	 *             if it cannot open any of the underlying indices.
+	 *
+	 * @since 5.11
+	 */
+	@NonNull
+	public ObjectReachabilityChecker createObjectReachabilityChecker(
+			ObjectWalk ow) throws IOException {
+		if (getBitmapIndex() != null) {
+			return new BitmappedObjectReachabilityChecker(ow);
+		}
+
+		return new PedestrianObjectReachabilityChecker(ow);
+	}
+
+	/**
 	 * Get the {@link org.eclipse.jgit.lib.ObjectInserter} from which this
 	 * reader was created using {@code inserter.newReader()}
 	 *
@@ -497,7 +519,7 @@ public abstract class ObjectReader implements AutoCloseable {
 	 *
 	 * @since 4.4
 	 */
-	public static abstract class Filter extends ObjectReader {
+	public abstract static class Filter extends ObjectReader {
 		/**
 		 * @return delegate ObjectReader to handle all processing.
 		 * @since 4.4

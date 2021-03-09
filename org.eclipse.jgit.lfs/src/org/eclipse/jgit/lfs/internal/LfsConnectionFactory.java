@@ -1,44 +1,11 @@
 /*
- * Copyright (C) 2017, Markus Duft <markus.duft@ssi-schaefer.com>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2017, Markus Duft <markus.duft@ssi-schaefer.com> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 package org.eclipse.jgit.lfs.internal;
 
@@ -51,7 +18,9 @@ import java.io.IOException;
 import java.net.ProxySelector;
 import java.net.URISyntaxException;
 import java.net.URL;
-import java.text.SimpleDateFormat;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.LinkedList;
 import java.util.Map;
 import java.util.TreeMap;
@@ -145,8 +114,8 @@ public class LfsConnectionFactory {
 					remoteUrl = config.getString(
 							ConfigConstants.CONFIG_KEY_REMOTE, remote,
 							ConfigConstants.CONFIG_KEY_URL);
+					break;
 				}
-				break;
 			}
 			if (lfsUrl == null && remoteUrl != null) {
 				try {
@@ -179,9 +148,8 @@ public class LfsConnectionFactory {
 					remoteUrl, u);
 			additionalHeaders.putAll(action.header);
 			return action.href;
-		} else {
-			return remoteUrl + Protocol.INFO_LFS_ENDPOINT;
 		}
+		return remoteUrl + Protocol.INFO_LFS_ENDPOINT;
 	}
 
 	private static Protocol.ExpiringAction getSshAuthentication(
@@ -262,9 +230,8 @@ public class LfsConnectionFactory {
 
 		if (path.endsWith(org.eclipse.jgit.lib.Constants.DOT_GIT)) {
 			return path.substring(0, path.length() - 4);
-		} else {
-			return path;
 		}
+		return path;
 	}
 
 	/**
@@ -293,8 +260,8 @@ public class LfsConnectionFactory {
 	private static final class AuthCache {
 		private static final long AUTH_CACHE_EAGER_TIMEOUT = 500;
 
-		private static final SimpleDateFormat ISO_FORMAT = new SimpleDateFormat(
-				"yyyy-MM-dd'T'HH:mm:ss.SSSX"); //$NON-NLS-1$
+		private static final DateTimeFormatter ISO_FORMAT = DateTimeFormatter
+				.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSX"); //$NON-NLS-1$
 
 		/**
 		 * Creates a cache entry for an authentication response.
@@ -313,8 +280,10 @@ public class LfsConnectionFactory {
 							- AUTH_CACHE_EAGER_TIMEOUT;
 				} else if (action.expiresAt != null
 						&& !action.expiresAt.isEmpty()) {
-					this.validUntil = ISO_FORMAT.parse(action.expiresAt)
-							.getTime() - AUTH_CACHE_EAGER_TIMEOUT;
+					this.validUntil = LocalDateTime
+							.parse(action.expiresAt, ISO_FORMAT)
+							.atZone(ZoneOffset.UTC).toInstant().toEpochMilli()
+							- AUTH_CACHE_EAGER_TIMEOUT;
 				} else {
 					this.validUntil = System.currentTimeMillis();
 				}

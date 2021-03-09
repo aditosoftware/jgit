@@ -1,44 +1,11 @@
 /*
- * Copyright (C) 2017, Google Inc.
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2017, Google Inc. and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.internal.storage.reftable;
@@ -171,6 +138,118 @@ public class MergedReftableTest {
 	}
 
 	@Test
+	public void twoTableSeekPastWithRefCursor() throws IOException {
+		List<Ref> delta1 = Arrays.asList(
+				ref("refs/heads/apple", 1),
+				ref("refs/heads/master", 2));
+		List<Ref> delta2 = Arrays.asList(
+				ref("refs/heads/banana", 3),
+				ref("refs/heads/zzlast", 4));
+
+		MergedReftable mr = merge(write(delta1), write(delta2));
+		try (RefCursor rc = mr.seekRefsWithPrefix("")) {
+			assertTrue(rc.next());
+			assertEquals("refs/heads/apple", rc.getRef().getName());
+			assertEquals(id(1), rc.getRef().getObjectId());
+
+			rc.seekPastPrefix("refs/heads/banana/");
+
+			assertTrue(rc.next());
+			assertEquals("refs/heads/master", rc.getRef().getName());
+			assertEquals(id(2), rc.getRef().getObjectId());
+
+			assertTrue(rc.next());
+			assertEquals("refs/heads/zzlast", rc.getRef().getName());
+			assertEquals(id(4), rc.getRef().getObjectId());
+
+			assertEquals(1, rc.getRef().getUpdateIndex());
+		}
+	}
+
+	@Test
+	public void oneTableSeekPastWithRefCursor() throws IOException {
+		List<Ref> delta1 = Arrays.asList(
+				ref("refs/heads/apple", 1),
+				ref("refs/heads/master", 2));
+
+		MergedReftable mr = merge(write(delta1));
+		try (RefCursor rc = mr.seekRefsWithPrefix("")) {
+			rc.seekPastPrefix("refs/heads/apple");
+
+			assertTrue(rc.next());
+			assertEquals("refs/heads/master", rc.getRef().getName());
+			assertEquals(id(2), rc.getRef().getObjectId());
+
+			assertEquals(1, rc.getRef().getUpdateIndex());
+		}
+	}
+
+	@Test
+	public void seekPastToNonExistentPrefixToTheMiddle() throws IOException {
+		List<Ref> delta1 = Arrays.asList(
+				ref("refs/heads/apple", 1),
+				ref("refs/heads/master", 2));
+		List<Ref> delta2 = Arrays.asList(
+				ref("refs/heads/banana", 3),
+				ref("refs/heads/zzlast", 4));
+
+		MergedReftable mr = merge(write(delta1), write(delta2));
+		try (RefCursor rc = mr.seekRefsWithPrefix("")) {
+			rc.seekPastPrefix("refs/heads/x");
+
+			assertTrue(rc.next());
+			assertEquals("refs/heads/zzlast", rc.getRef().getName());
+			assertEquals(id(4), rc.getRef().getObjectId());
+
+			assertEquals(1, rc.getRef().getUpdateIndex());
+		}
+	}
+
+	@Test
+	public void seekPastToNonExistentPrefixToTheEnd() throws IOException {
+		List<Ref> delta1 = Arrays.asList(
+				ref("refs/heads/apple", 1),
+				ref("refs/heads/master", 2));
+		List<Ref> delta2 = Arrays.asList(
+				ref("refs/heads/banana", 3),
+				ref("refs/heads/zzlast", 4));
+
+		MergedReftable mr = merge(write(delta1), write(delta2));
+		try (RefCursor rc = mr.seekRefsWithPrefix("")) {
+			rc.seekPastPrefix("refs/heads/zzz");
+			assertFalse(rc.next());
+		}
+	}
+
+	@Test
+	public void seekPastManyTimes() throws IOException {
+		List<Ref> delta1 = Arrays.asList(
+				ref("refs/heads/apple", 1),
+				ref("refs/heads/master", 2));
+		List<Ref> delta2 = Arrays.asList(
+				ref("refs/heads/banana", 3),
+				ref("refs/heads/zzlast", 4));
+
+		MergedReftable mr = merge(write(delta1), write(delta2));
+		try (RefCursor rc = mr.seekRefsWithPrefix("")) {
+			rc.seekPastPrefix("refs/heads/apple");
+			rc.seekPastPrefix("refs/heads/banana");
+			rc.seekPastPrefix("refs/heads/master");
+			rc.seekPastPrefix("refs/heads/zzlast");
+			assertFalse(rc.next());
+		}
+	}
+
+	@Test
+	public void seekPastOnEmptyTable() throws IOException {
+		MergedReftable mr = merge(write(), write());
+		try (RefCursor rc = mr.seekRefsWithPrefix("")) {
+			rc.seekPastPrefix("refs/");
+			assertFalse(rc.next());
+		}
+	}
+
+	@Test
 	public void twoTableById() throws IOException {
 		List<Ref> delta1 = Arrays.asList(
 				ref("refs/heads/apple", 1),
@@ -183,6 +262,19 @@ public class MergedReftableTest {
 			assertEquals("refs/heads/master", rc.getRef().getName());
 			assertEquals(id(2), rc.getRef().getObjectId());
 			assertEquals(1, rc.getRef().getUpdateIndex());
+			assertFalse(rc.next());
+		}
+	}
+
+	@Test
+	public void tableByIDDeletion() throws IOException {
+		List<Ref> delta1 = Arrays.asList(
+				ref("refs/heads/apple", 1),
+				ref("refs/heads/master", 2));
+		List<Ref> delta2 = Arrays.asList(ref("refs/heads/master", 3));
+
+		MergedReftable mr = merge(write(delta1), write(delta2));
+		try (RefCursor rc = mr.byObjectId(id(2))) {
 			assertFalse(rc.next());
 		}
 	}
@@ -220,29 +312,6 @@ public class MergedReftableTest {
 				assertEquals(exp.getObjectId(), act.getObjectId());
 				assertEquals(1, rc.getRef().getUpdateIndex());
 			}
-			assertFalse(rc.next());
-		}
-	}
-
-	@Test
-	public void scanDuplicates() throws IOException {
-		List<Ref> delta1 = Arrays.asList(
-				ref("refs/heads/apple", 1),
-				ref("refs/heads/banana", 2));
-		List<Ref> delta2 = Arrays.asList(
-				ref("refs/heads/apple", 3),
-				ref("refs/heads/apple", 4));
-
-		MergedReftable mr = merge(write(delta1, 1000), write(delta2, 2000));
-		try (RefCursor rc = mr.allRefs()) {
-			assertTrue(rc.next());
-			assertEquals("refs/heads/apple", rc.getRef().getName());
-			assertEquals(id(3), rc.getRef().getObjectId());
-			assertEquals(2000, rc.getRef().getUpdateIndex());
-			assertTrue(rc.next());
-			assertEquals("refs/heads/banana", rc.getRef().getName());
-			assertEquals(id(2), rc.getRef().getObjectId());
-			assertEquals(1000, rc.getRef().getUpdateIndex());
 			assertFalse(rc.next());
 		}
 	}
@@ -326,6 +395,123 @@ public class MergedReftableTest {
 			assertEquals("refs/heads/c", rc.getRef().getName());
 			assertEquals(id(3), rc.getRef().getObjectId());
 			assertEquals(3, rc.getRef().getUpdateIndex());
+		}
+	}
+
+	@Test
+	public void nonOverlappedUpdateIndices() throws IOException {
+		ByteArrayOutputStream buf = new ByteArrayOutputStream();
+		ReftableWriter writer = new ReftableWriter(buf)
+				.setMinUpdateIndex(1)
+				.setMaxUpdateIndex(2)
+				.begin();
+		writer.writeRef(ref("refs/heads/a", 1), 1);
+		writer.writeRef(ref("refs/heads/b", 2), 2);
+		writer.finish();
+		byte[] base = buf.toByteArray();
+
+		buf = new ByteArrayOutputStream();
+		writer = new ReftableWriter(buf)
+				.setMinUpdateIndex(3)
+				.setMaxUpdateIndex(4)
+				.begin();
+		writer.writeRef(ref("refs/heads/a", 10), 3);
+		writer.writeRef(ref("refs/heads/b", 20), 4);
+		writer.finish();
+		byte[] delta = buf.toByteArray();
+
+		MergedReftable mr = merge(base, delta);
+		assertEquals(1, mr.minUpdateIndex());
+		assertEquals(4, mr.maxUpdateIndex());
+
+		try (RefCursor rc = mr.allRefs()) {
+			assertTrue(rc.next());
+			assertEquals("refs/heads/a", rc.getRef().getName());
+			assertEquals(id(10), rc.getRef().getObjectId());
+			assertEquals(3, rc.getRef().getUpdateIndex());
+
+			assertTrue(rc.next());
+			assertEquals("refs/heads/b", rc.getRef().getName());
+			assertEquals(id(20), rc.getRef().getObjectId());
+			assertEquals(4, rc.getRef().getUpdateIndex());
+		}
+	}
+
+	@Test
+	public void overlappedUpdateIndices() throws IOException {
+		ByteArrayOutputStream buf = new ByteArrayOutputStream();
+		ReftableWriter writer = new ReftableWriter(buf)
+				.setMinUpdateIndex(2)
+				.setMaxUpdateIndex(4)
+				.begin();
+		writer.writeRef(ref("refs/heads/a", 10), 2);
+		writer.writeRef(ref("refs/heads/b", 20), 4);
+		writer.finish();
+		byte[] base = buf.toByteArray();
+
+		buf = new ByteArrayOutputStream();
+		writer = new ReftableWriter(buf)
+				.setMinUpdateIndex(1)
+				.setMaxUpdateIndex(3)
+				.begin();
+		writer.writeRef(ref("refs/heads/a", 1), 1);
+		writer.writeRef(ref("refs/heads/b", 2), 3);
+		writer.finish();
+		byte[] delta = buf.toByteArray();
+
+		MergedReftable mr = merge(base, delta);
+		assertEquals(1, mr.minUpdateIndex());
+		assertEquals(4, mr.maxUpdateIndex());
+
+		try (RefCursor rc = mr.allRefs()) {
+			assertTrue(rc.next());
+			assertEquals("refs/heads/a", rc.getRef().getName());
+			assertEquals(id(10), rc.getRef().getObjectId());
+			assertEquals(2, rc.getRef().getUpdateIndex());
+
+			assertTrue(rc.next());
+			assertEquals("refs/heads/b", rc.getRef().getName());
+			assertEquals(id(20), rc.getRef().getObjectId());
+			assertEquals(4, rc.getRef().getUpdateIndex());
+		}
+	}
+
+	@Test
+	public void enclosedUpdateIndices() throws IOException {
+		ByteArrayOutputStream buf = new ByteArrayOutputStream();
+		ReftableWriter writer = new ReftableWriter(buf)
+				.setMinUpdateIndex(2)
+				.setMaxUpdateIndex(3)
+				.begin();
+		writer.writeRef(ref("refs/heads/a", 10), 2);
+		writer.writeRef(ref("refs/heads/b", 2), 3);
+		writer.finish();
+		byte[] base = buf.toByteArray();
+
+		buf = new ByteArrayOutputStream();
+		writer = new ReftableWriter(buf)
+				.setMinUpdateIndex(1)
+				.setMaxUpdateIndex(4)
+				.begin();
+		writer.writeRef(ref("refs/heads/a", 1), 1);
+		writer.writeRef(ref("refs/heads/b", 20), 4);
+		writer.finish();
+		byte[] delta = buf.toByteArray();
+
+		MergedReftable mr = merge(base, delta);
+		assertEquals(1, mr.minUpdateIndex());
+		assertEquals(4, mr.maxUpdateIndex());
+
+		try (RefCursor rc = mr.allRefs()) {
+			assertTrue(rc.next());
+			assertEquals("refs/heads/a", rc.getRef().getName());
+			assertEquals(id(10), rc.getRef().getObjectId());
+			assertEquals(2, rc.getRef().getUpdateIndex());
+
+			assertTrue(rc.next());
+			assertEquals("refs/heads/b", rc.getRef().getName());
+			assertEquals(id(20), rc.getRef().getObjectId());
+			assertEquals(4, rc.getRef().getUpdateIndex());
 		}
 	}
 

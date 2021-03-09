@@ -1,44 +1,11 @@
 /*
- * Copyright (C) 2017, Two Sigma Open Source
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2017, Two Sigma Open Source and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 package org.eclipse.jgit.submodule;
 
@@ -107,7 +74,6 @@ public class SubmoduleDeinitTest extends RepositoryTestCase {
 		assertEquals(1, updated.size());
 
 		File submoduleDir = assertSubmoduleIsInitialized();
-		SubmoduleWalk generator;
 
 		write(new File(submoduleDir, "untracked"), "untracked");
 
@@ -115,8 +81,9 @@ public class SubmoduleDeinitTest extends RepositoryTestCase {
 		assertEquals(path, result.getPath());
 		assertEquals(SubmoduleDeinitCommand.SubmoduleDeinitStatus.DIRTY, result.getStatus());
 
-		generator = SubmoduleWalk.forIndex(db);
-		assertTrue(generator.next());
+		try (SubmoduleWalk generator = SubmoduleWalk.forIndex(db)) {
+			assertTrue(generator.next());
+		}
 		assertTrue(submoduleDir.isDirectory());
 		assertNotEquals(0, submoduleDir.list().length);
 	}
@@ -132,33 +99,36 @@ public class SubmoduleDeinitTest extends RepositoryTestCase {
 		assertEquals(1, updated.size());
 
 		File submoduleDir = assertSubmoduleIsInitialized();
-		SubmoduleWalk generator = SubmoduleWalk.forIndex(db);
-		generator.next();
+		try (SubmoduleWalk generator = SubmoduleWalk.forIndex(db)) {
+			generator.next();
 
-		//want to create a commit inside the repo...
-		try (Repository submoduleLocalRepo = generator.getRepository()) {
-			JGitTestUtil.writeTrashFile(submoduleLocalRepo, "file.txt",
-					"new data");
-			Git.wrap(submoduleLocalRepo).commit().setAll(true)
-					.setMessage("local commit").call();
+			// want to create a commit inside the repo...
+			try (Repository submoduleLocalRepo = generator.getRepository()) {
+				JGitTestUtil.writeTrashFile(submoduleLocalRepo, "file.txt",
+						"new data");
+				Git.wrap(submoduleLocalRepo).commit().setAll(true)
+						.setMessage("local commit").call();
+			}
 		}
 		SubmoduleDeinitResult result = runDeinit(new SubmoduleDeinitCommand(db).addPath("sub"));
 		assertEquals(path, result.getPath());
 		assertEquals(SubmoduleDeinitCommand.SubmoduleDeinitStatus.DIRTY, result.getStatus());
 
-		generator = SubmoduleWalk.forIndex(db);
-		assertTrue(generator.next());
+		try (SubmoduleWalk generator = SubmoduleWalk.forIndex(db)) {
+			assertTrue(generator.next());
+		}
 		assertTrue(submoduleDir.isDirectory());
 		assertNotEquals(0, submoduleDir.list().length);
 	}
 
 	private File assertSubmoduleIsInitialized() throws IOException {
-		SubmoduleWalk generator = SubmoduleWalk.forIndex(db);
-		assertTrue(generator.next());
-		File submoduleDir = new File(db.getWorkTree(), generator.getPath());
-		assertTrue(submoduleDir.isDirectory());
-		assertNotEquals(0, submoduleDir.list().length);
-		return submoduleDir;
+		try (SubmoduleWalk generator = SubmoduleWalk.forIndex(db)) {
+			assertTrue(generator.next());
+			File submoduleDir = new File(db.getWorkTree(), generator.getPath());
+			assertTrue(submoduleDir.isDirectory());
+			assertNotEquals(0, submoduleDir.list().length);
+			return submoduleDir;
+		}
 	}
 
 	@Test
@@ -180,8 +150,9 @@ public class SubmoduleDeinitTest extends RepositoryTestCase {
 		assertEquals(path, result.getPath());
 		assertEquals(SubmoduleDeinitCommand.SubmoduleDeinitStatus.FORCED, result.getStatus());
 
-		SubmoduleWalk generator = SubmoduleWalk.forIndex(db);
-		assertTrue(generator.next());
+		try (SubmoduleWalk generator = SubmoduleWalk.forIndex(db)) {
+			assertTrue(generator.next());
+		}
 		assertTrue(submoduleDir.isDirectory());
 		assertEquals(0, submoduleDir.list().length);
 	}
@@ -202,8 +173,9 @@ public class SubmoduleDeinitTest extends RepositoryTestCase {
 		assertEquals(path, result.getPath());
 		assertEquals(SubmoduleDeinitCommand.SubmoduleDeinitStatus.SUCCESS, result.getStatus());
 
-		SubmoduleWalk generator = SubmoduleWalk.forIndex(db);
-		assertTrue(generator.next());
+		try (SubmoduleWalk generator = SubmoduleWalk.forIndex(db)) {
+			assertTrue(generator.next());
+		}
 		assertTrue(submoduleDir.isDirectory());
 		assertEquals(0, submoduleDir.list().length);
 	}

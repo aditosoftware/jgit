@@ -1,45 +1,12 @@
 /*
  * Copyright (C) 2010, Google Inc.
- * Copyright (C) 2008, Shawn O. Pearce <spearce@spearce.org>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2008, Shawn O. Pearce <spearce@spearce.org> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.util;
@@ -51,26 +18,34 @@ import java.io.UnsupportedEncodingException;
 import java.net.ConnectException;
 import java.net.Proxy;
 import java.net.ProxySelector;
+import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
-import java.security.cert.X509Certificate;
 import java.text.MessageFormat;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
-import javax.net.ssl.HostnameVerifier;
-import javax.net.ssl.SSLSession;
+import javax.net.ssl.SSLSocket;
 import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 
 import org.eclipse.jgit.internal.JGitText;
 import org.eclipse.jgit.transport.http.HttpConnection;
+import org.eclipse.jgit.transport.http.NoCheckX509TrustManager;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Extra utilities to support usage of HTTP.
  */
 public class HttpSupport {
+	private final static Logger LOG = LoggerFactory
+			.getLogger(HttpSupport.class);
+
 	/** The {@code GET} HTTP method. */
 	public static final String METHOD_GET = "GET"; //$NON-NLS-1$
 
@@ -190,6 +165,8 @@ public class HttpSupport {
 	 */
 	public static final String HDR_SET_COOKIE2 = "Set-Cookie2"; //$NON-NLS-1$
 
+	private static Set<String> configuredHttpsProtocols;
+
 	/**
 	 * URL encode a value string into an output buffer.
 	 *
@@ -299,7 +276,9 @@ public class HttpSupport {
 	public static Proxy proxyFor(ProxySelector proxySelector, URL u)
 			throws ConnectException {
 		try {
-			return proxySelector.select(u.toURI()).get(0);
+			URI uri = new URI(u.getProtocol(), null, u.getHost(), u.getPort(),
+					null, null, null);
+			return proxySelector.select(uri).get(0);
 		} catch (URISyntaxException e) {
 			final ConnectException err;
 			err = new ConnectException(MessageFormat.format(JGitText.get().cannotDetermineProxyFor, u));
@@ -319,41 +298,163 @@ public class HttpSupport {
 	 */
 	public static void disableSslVerify(HttpConnection conn)
 			throws IOException {
-		final TrustManager[] trustAllCerts = new TrustManager[] {
-				new DummyX509TrustManager() };
+		TrustManager[] trustAllCerts = {
+				new NoCheckX509TrustManager() };
 		try {
 			conn.configure(null, trustAllCerts, null);
-			conn.setHostnameVerifier(new DummyHostnameVerifier());
+			conn.setHostnameVerifier((name, session) -> true);
 		} catch (KeyManagementException | NoSuchAlgorithmException e) {
-			throw new IOException(e.getMessage());
+			throw new IOException(e.getMessage(), e);
 		}
 	}
 
-	private static class DummyX509TrustManager implements X509TrustManager {
-		@Override
-		public X509Certificate[] getAcceptedIssuers() {
+	/**
+	 * Enables all supported TLS protocol versions on the socket given. If
+	 * system property "https.protocols" is set, only protocols specified there
+	 * are enabled.
+	 * <p>
+	 * This is primarily a mechanism to deal with using TLS on IBM JDK. IBM JDK
+	 * returns sockets that support all TLS protocol versions but have only the
+	 * one specified in the context enabled. Oracle or OpenJDK return sockets
+	 * that have all available protocols enabled already, up to the one
+	 * specified.
+	 * <p>
+	 * <table>
+	 * <tr>
+	 * <td>SSLContext.getInstance()</td>
+	 * <td>OpenJDK</td>
+	 * <td>IDM JDK</td>
+	 * </tr>
+	 * <tr>
+	 * <td>"TLS"</td>
+	 * <td>Supported: TLSv1, TLSV1.1, TLSv1.2 (+ TLSv1.3)<br />
+	 * Enabled: TLSv1, TLSV1.1, TLSv1.2 (+ TLSv1.3)</td>
+	 * <td>Supported: TLSv1, TLSV1.1, TLSv1.2<br />
+	 * Enabled: TLSv1</td>
+	 * </tr>
+	 * <tr>
+	 * <td>"TLSv1.2"</td>
+	 * <td>Supported: TLSv1, TLSV1.1, TLSv1.2<br />
+	 * Enabled: TLSv1, TLSV1.1, TLSv1.2</td>
+	 * <td>Supported: TLSv1, TLSV1.1, TLSv1.2<br />
+	 * Enabled: TLSv1.2</td>
+	 * </tr>
+	 * </table>
+	 *
+	 * @param socket
+	 *            to configure
+	 * @see <a href=
+	 *      "https://www.ibm.com/support/knowledgecenter/en/SSYKE2_8.0.0/com.ibm.java.security.component.80.doc/security-component/jsse2Docs/matchsslcontext_tls.html">Behavior
+	 *      of SSLContext.getInstance("TLS") on IBM JDK</a>
+	 * @see <a href=
+	 *      "https://docs.oracle.com/javase/8/docs/technotes/guides/security/jsse/JSSERefGuide.html#InstallationAndCustomization">Customizing
+	 *      JSSE about https.protocols</a>
+	 * @since 5.7
+	 */
+	public static void configureTLS(SSLSocket socket) {
+		// 1. Enable all available TLS protocol versions
+		Set<String> enabled = new LinkedHashSet<>(
+				Arrays.asList(socket.getEnabledProtocols()));
+		for (String s : socket.getSupportedProtocols()) {
+			if (s.startsWith("TLS")) { //$NON-NLS-1$
+				enabled.add(s);
+			}
+		}
+		// 2. Respect the https.protocols system property
+		Set<String> configured = getConfiguredProtocols();
+		if (!configured.isEmpty()) {
+			enabled.retainAll(configured);
+		}
+		if (!enabled.isEmpty()) {
+			socket.setEnabledProtocols(enabled.toArray(new String[0]));
+		}
+	}
+
+	private static Set<String> getConfiguredProtocols() {
+		Set<String> result = configuredHttpsProtocols;
+		if (result == null) {
+			String configured = getProperty("https.protocols"); //$NON-NLS-1$
+			if (StringUtils.isEmptyOrNull(configured)) {
+				result = Collections.emptySet();
+			} else {
+				result = new LinkedHashSet<>(
+						Arrays.asList(configured.split("\\s*,\\s*"))); //$NON-NLS-1$
+			}
+			configuredHttpsProtocols = result;
+		}
+		return result;
+	}
+
+	private static String getProperty(String property) {
+		try {
+			return SystemReader.getInstance().getProperty(property);
+		} catch (SecurityException e) {
+			LOG.warn(JGitText.get().failedReadHttpsProtocols, e);
 			return null;
 		}
-
-		@Override
-		public void checkClientTrusted(X509Certificate[] certs,
-				String authType) {
-			// no check
-		}
-
-		@Override
-		public void checkServerTrusted(X509Certificate[] certs,
-				String authType) {
-			// no check
-		}
 	}
 
-	private static class DummyHostnameVerifier implements HostnameVerifier {
-		@Override
-		public boolean verify(String hostname, SSLSession session) {
-			// always accept
-			return true;
+	/**
+	 * Scan a RFC 7230 token as it appears in HTTP headers.
+	 *
+	 * @param header
+	 *            to scan in
+	 * @param from
+	 *            index in {@code header} to start scanning at
+	 * @return the index after the token, that is, on the first non-token
+	 *         character or {@code header.length}
+	 * @throws IndexOutOfBoundsException
+	 *             if {@code from < 0} or {@code from > header.length()}
+	 *
+	 * @see <a href="https://tools.ietf.org/html/rfc7230#appendix-B">RFC 7230,
+	 *      Appendix B: Collected Grammar; "token" production</a>
+	 * @since 5.10
+	 */
+	public static int scanToken(String header, int from) {
+		int length = header.length();
+		int i = from;
+		if (i < 0 || i > length) {
+			throw new IndexOutOfBoundsException();
 		}
+		while (i < length) {
+			char c = header.charAt(i);
+			switch (c) {
+			case '!':
+			case '#':
+			case '$':
+			case '%':
+			case '&':
+			case '\'':
+			case '*':
+			case '+':
+			case '-':
+			case '.':
+			case '^':
+			case '_':
+			case '`':
+			case '|':
+			case '~':
+			case '0':
+			case '1':
+			case '2':
+			case '3':
+			case '4':
+			case '5':
+			case '6':
+			case '7':
+			case '8':
+			case '9':
+				i++;
+				break;
+			default:
+				if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
+					i++;
+					break;
+				}
+				return i;
+			}
+		}
+		return i;
 	}
 
 	private HttpSupport() {

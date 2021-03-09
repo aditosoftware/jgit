@@ -4,46 +4,13 @@
  * Copyright (C) 2006-2010, Robin Rosenberg <robin.rosenberg@dewire.com>
  * Copyright (C) 2006-2012, Shawn O. Pearce <spearce@spearce.org>
  * Copyright (C) 2012, Daniel Megert <daniel_megert@ch.ibm.com>
- * Copyright (C) 2017, Wim Jongman <wim.jongman@remainsoftware.com>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2017, Wim Jongman <wim.jongman@remainsoftware.com> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.lib;
@@ -160,6 +127,8 @@ public abstract class Repository implements AutoCloseable {
 	/** If not bare, the index file caching the working file states. */
 	private final File indexFile;
 
+	private final String initialBranch;
+
 	/**
 	 * Initialize a new repository instance.
 	 *
@@ -171,6 +140,7 @@ public abstract class Repository implements AutoCloseable {
 		fs = options.getFS();
 		workTree = options.getWorkTree();
 		indexFile = options.getIndexFile();
+		initialBranch = options.getInitialBranch();
 	}
 
 	/**
@@ -503,9 +473,8 @@ public abstract class Repository implements AutoCloseable {
 			if (resolved instanceof String) {
 				final Ref ref = findRef((String) resolved);
 				return ref != null ? ref.getLeaf().getObjectId() : null;
-			} else {
-				return (ObjectId) resolved;
 			}
+			return (ObjectId) resolved;
 		}
 	}
 
@@ -527,11 +496,12 @@ public abstract class Repository implements AutoCloseable {
 		try (RevWalk rw = new RevWalk(this)) {
 			rw.setRetainBody(true);
 			Object resolved = resolve(rw, revstr);
-			if (resolved != null)
-				if (resolved instanceof String)
+			if (resolved != null) {
+				if (resolved instanceof String) {
 					return (String) resolved;
-				else
-					return ((AnyObjectId) resolved).getName();
+				}
+				return ((AnyObjectId) resolved).getName();
+			}
 			return null;
 		}
 	}
@@ -583,9 +553,11 @@ public abstract class Repository implements AutoCloseable {
 						try {
 							pnum = Integer.parseInt(parentnum);
 						} catch (NumberFormatException e) {
-							throw new RevisionSyntaxException(
+							RevisionSyntaxException rse = new RevisionSyntaxException(
 									JGitText.get().invalidCommitParentNumber,
 									revstr);
+							rse.initCause(e);
+							throw rse;
 						}
 						if (pnum != 0) {
 							RevCommit commit = (RevCommit) rev;
@@ -680,8 +652,10 @@ public abstract class Repository implements AutoCloseable {
 					try {
 						dist = Integer.parseInt(distnum);
 					} catch (NumberFormatException e) {
-						throw new RevisionSyntaxException(
+						RevisionSyntaxException rse = new RevisionSyntaxException(
 								JGitText.get().invalidAncestryLength, revstr);
+						rse.initCause(e);
+						throw rse;
 					}
 				} else
 					dist = 1;
@@ -740,7 +714,10 @@ public abstract class Repository implements AutoCloseable {
 							remoteConfig = new RemoteConfig(getConfig(),
 									"origin"); //$NON-NLS-1$
 						} catch (URISyntaxException e) {
-							throw new RevisionSyntaxException(revstr);
+							RevisionSyntaxException rse = new RevisionSyntaxException(
+									revstr);
+							rse.initCause(e);
+							throw rse;
 						}
 						String remoteBranchName = getConfig()
 								.getString(
@@ -760,15 +737,15 @@ public abstract class Repository implements AutoCloseable {
 						if (name == null)
 							throw new RevisionSyntaxException(revstr);
 					} else if (time.matches("^-\\d+$")) { //$NON-NLS-1$
-						if (name != null)
+						if (name != null) {
 							throw new RevisionSyntaxException(revstr);
-						else {
-							String previousCheckout = resolveReflogCheckout(-Integer
-									.parseInt(time));
-							if (ObjectId.isId(previousCheckout))
-								rev = parseSimple(rw, previousCheckout);
-							else
-								name = previousCheckout;
+						}
+						String previousCheckout = resolveReflogCheckout(
+								-Integer.parseInt(time));
+						if (ObjectId.isId(previousCheckout)) {
+							rev = parseSimple(rw, previousCheckout);
+						} else {
+							name = previousCheckout;
 						}
 					} else {
 						if (name == null)
@@ -907,8 +884,11 @@ public abstract class Repository implements AutoCloseable {
 		try {
 			number = Integer.parseInt(time);
 		} catch (NumberFormatException nfe) {
-			throw new RevisionSyntaxException(MessageFormat.format(
-					JGitText.get().invalidReflogRevision, time));
+			RevisionSyntaxException rse = new RevisionSyntaxException(
+					MessageFormat.format(JGitText.get().invalidReflogRevision,
+							time));
+			rse.initCause(nfe);
+			throw rse;
 		}
 		assert number >= 0;
 		ReflogReader reader = getReflogReader(ref.getName());
@@ -1054,6 +1034,16 @@ public abstract class Repository implements AutoCloseable {
 		if (name != null)
 			return shortenRefName(name);
 		return null;
+	}
+
+	/**
+	 * Get the initial branch name of a new repository
+	 *
+	 * @return the initial branch name of a new repository
+	 * @since 5.11
+	 */
+	protected @NonNull String getInitialBranch() {
+		return initialBranch;
 	}
 
 	/**

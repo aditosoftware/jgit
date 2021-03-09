@@ -1,44 +1,11 @@
 /*
- * Copyright (C) 2008-2009, Google Inc.
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2008, 2020 Google Inc. and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.transport;
@@ -54,6 +21,7 @@ import java.util.Map;
 import org.eclipse.jgit.annotations.Nullable;
 import org.eclipse.jgit.internal.storage.file.LazyObjectIdSetFile;
 import org.eclipse.jgit.lib.Config;
+import org.eclipse.jgit.lib.ConfigConstants;
 import org.eclipse.jgit.lib.Config.SectionParser;
 import org.eclipse.jgit.lib.ObjectChecker;
 import org.eclipse.jgit.lib.ObjectIdSet;
@@ -93,17 +61,34 @@ public class TransferConfig {
 	}
 
 	/**
-	 * A git configuration variable for which versions of the Git protocol to prefer.
-	 * Used in protocol.version.
+	 * A git configuration variable for which versions of the Git protocol to
+	 * prefer. Used in protocol.version.
+	 *
+	 * @since 5.9
 	 */
-	enum ProtocolVersion {
+	public enum ProtocolVersion {
+		/**
+		 * Git wire protocol version 0 (the default).
+		 */
 		V0("0"), //$NON-NLS-1$
+		/**
+		 * Git wire protocol version 2.
+		 */
 		V2("2"); //$NON-NLS-1$
 
 		final String name;
 
 		ProtocolVersion(String name) {
 			this.name = name;
+		}
+
+		/**
+		 * Returns version number
+		 *
+		 * @return string version
+		 */
+		public String version() {
+			return name;
 		}
 
 		@Nullable
@@ -115,6 +100,9 @@ public class TransferConfig {
 				if (v.name.equals(name)) {
 					return v;
 				}
+			}
+			if ("1".equals(name)) { //$NON-NLS-1$
+				return V0;
 			}
 			return null;
 		}
@@ -132,6 +120,7 @@ public class TransferConfig {
 	private final boolean allowReachableSha1InWant;
 	private final boolean allowFilter;
 	private final boolean allowSidebandAll;
+	private final boolean advertiseSidebandAll;
 	final @Nullable ProtocolVersion protocolVersion;
 	final String[] hideRefs;
 
@@ -209,10 +198,14 @@ public class TransferConfig {
 				"uploadpack", "allowreachablesha1inwant", false);
 		allowFilter = rc.getBoolean(
 				"uploadpack", "allowfilter", false);
-		protocolVersion = ProtocolVersion.parse(rc.getString("protocol", null, "version"));
+		protocolVersion = ProtocolVersion.parse(rc
+				.getString(ConfigConstants.CONFIG_PROTOCOL_SECTION, null,
+						ConfigConstants.CONFIG_KEY_VERSION));
 		hideRefs = rc.getStringList("uploadpack", null, "hiderefs");
 		allowSidebandAll = rc.getBoolean(
 				"uploadpack", "allowsidebandall", false);
+		advertiseSidebandAll = rc.getBoolean("uploadpack",
+				"advertisesidebandall", false);
 	}
 
 	/**
@@ -295,11 +288,20 @@ public class TransferConfig {
 	}
 
 	/**
-	 * @return true if clients are allowed to specify a "sideband-all" line
+	 * @return true if the server accepts sideband-all requests (see
+	 *         {{@link #isAdvertiseSidebandAll()} for the advertisement)
 	 * @since 5.5
 	 */
 	public boolean isAllowSidebandAll() {
 		return allowSidebandAll;
+	}
+
+	/**
+	 * @return true to advertise sideband all to the clients
+	 * @since 5.6
+	 */
+	public boolean isAdvertiseSidebandAll() {
+		return advertiseSidebandAll && allowSidebandAll;
 	}
 
 	/**

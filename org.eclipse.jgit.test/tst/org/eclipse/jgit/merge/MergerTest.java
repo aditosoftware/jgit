@@ -1,44 +1,11 @@
 /*
- * Copyright (C) 2012, Robin Stocker <robin@nibor.org>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2012, 2020 Robin Stocker <robin@nibor.org> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 package org.eclipse.jgit.merge;
 
@@ -397,6 +364,48 @@ public class MergerTest extends RepositoryTestCase {
 				.call();
 		assertEquals(MergeResult.MergeStatus.MERGED,
 				mergeResult.getMergeStatus());
+	}
+
+	@Theory
+	public void mergeConflictWithCrLfTextAuto(MergeStrategy strategy)
+			throws IOException, GitAPIException {
+		Git git = Git.wrap(db);
+		writeTrashFile("crlf.txt", "a crlf file\r\n");
+		git.add().addFilepattern("crlf.txt").call();
+		git.commit().setMessage("base").call();
+		assertEquals("[crlf.txt, mode:100644, content:a crlf file\r\n]",
+				indexState(CONTENT));
+		writeTrashFile(".gitattributes", "crlf.txt text=auto");
+		git.add().addFilepattern(".gitattributes").call();
+		git.commit().setMessage("attributes").call();
+
+		git.branchCreate().setName("brancha").call();
+
+		writeTrashFile("crlf.txt", "a crlf file\r\na second line\r\n");
+		git.add().addFilepattern("crlf.txt").call();
+		git.commit().setMessage("on master").call();
+		assertEquals(
+				"[.gitattributes, mode:100644, content:crlf.txt text=auto]"
+						+ "[crlf.txt, mode:100644, content:a crlf file\r\na second line\r\n]",
+				indexState(CONTENT));
+
+		git.checkout().setName("brancha").call();
+		File testFile = writeTrashFile("crlf.txt",
+				"a crlf file\r\nanother line\r\n");
+		git.add().addFilepattern("crlf.txt").call();
+		git.commit().setMessage("on brancha").call();
+
+		MergeResult mergeResult = git.merge().setStrategy(strategy)
+				.include(db.resolve("master")).call();
+		assertEquals(MergeResult.MergeStatus.CONFLICTING,
+				mergeResult.getMergeStatus());
+		checkFile(testFile,
+				"a crlf file\r\n" //
+						+ "<<<<<<< HEAD\n" //
+						+ "another line\r\n" //
+						+ "=======\n" //
+						+ "a second line\r\n" //
+						+ ">>>>>>> 8e9e704742f1bc8a41eac88aac4aeefd338b7384\n");
 	}
 
 	@Theory
@@ -1287,6 +1296,358 @@ public class MergerTest extends RepositoryTestCase {
 		}
 	}
 
+	/**
+	 * Merging two commits with a conflict in the virtual ancestor.
+	 *
+	 * Content conflicts while merging the virtual ancestor must be ignored.
+	 *
+	 * In the following tree, while merging A and B, the recursive algorithm
+	 * finds as base commits X and Y and tries to merge them: X deletes file "a"
+	 * and Y modifies it.
+	 *
+	 * Note: we delete "a" in (master) and (second-branch) to make avoid manual
+	 * merges. The situation is the same without those deletions and fixing
+	 * manually the merge of (merge-both-sides) on both branches.
+	 *
+	 * <pre>
+	 * A  (second-branch) Merge branch 'merge-both-sides' into second-branch
+	 * |\
+	 * o | Delete modified a
+	 * | |
+	 * | | B (master) Merge branch 'merge-both-sides' (into master)
+	 * | |/|
+	 * | X | (merge-both-sides) Delete original a
+	 * | | |
+	 * | | o Delete modified a
+	 * | |/
+	 * |/|
+	 * Y | Modify a
+	 * |/
+	 * o Initial commit
+	 * </pre>
+	 *
+	 * @param strategy
+	 * @throws Exception
+	 */
+	@Theory
+	public void checkMergeConflictInVirtualAncestor(
+			MergeStrategy strategy) throws Exception {
+		if (!strategy.equals(MergeStrategy.RECURSIVE)) {
+			return;
+		}
+
+		Git git = Git.wrap(db);
+
+		// master
+		writeTrashFile("a", "aaaaaaaa");
+		writeTrashFile("b", "bbbbbbbb");
+		git.add().addFilepattern("a").addFilepattern("b").call();
+		RevCommit first = git.commit().setMessage("Initial commit").call();
+
+		writeTrashFile("a", "aaaaaaaaaaaaaaa");
+		git.add().addFilepattern("a").call();
+		RevCommit commitY = git.commit().setMessage("Modify a").call();
+
+		git.rm().addFilepattern("a").call();
+		// Do more in this commits, so it is not identical to the deletion in
+		// second-branch
+		writeTrashFile("c", "cccccccc");
+		git.add().addFilepattern("c").call();
+		git.commit().setMessage("Delete modified a").call();
+
+		// merge-both-sides: starts before "a" is modified and deletes it
+		git.checkout().setCreateBranch(true).setStartPoint(first)
+				.setName("merge-both-sides").call();
+		git.rm().addFilepattern("a").call();
+		RevCommit commitX = git.commit().setMessage("Delete original a").call();
+
+		// second branch
+		git.checkout().setCreateBranch(true).setStartPoint(commitY)
+				.setName("second-branch").call();
+		git.rm().addFilepattern("a").call();
+		git.commit().setMessage("Delete modified a").call();
+
+		// Merge merge-both-sides into second-branch
+		MergeResult mergeResult = git.merge().include(commitX)
+				.setStrategy(strategy)
+				.call();
+		ObjectId commitB = mergeResult.getNewHead();
+
+		// Merge merge-both-sides into master
+		git.checkout().setName("master").call();
+		mergeResult = git.merge().include(commitX).setStrategy(strategy)
+				.call();
+
+		// Now, merge commit A and B (i.e. "master" and "second-branch").
+		// None of them have the file "a", so there is no conflict, BUT while
+		// building the virtual ancestor it will find a conflict between Y and X
+		git.merge().include(commitB).call();
+	}
+
+	/**
+	 * Merging two commits with a file/dir conflict in the virtual ancestor.
+	 *
+	 * <p>
+	 * Those conflicts should be ignored, otherwise the found base can not be used by the
+	 * RecursiveMerger.
+	 * <pre>
+	 *  --------------
+	 * |              \
+	 * |         C1 - C4 --- ?     master
+	 * |        /          /
+	 * |  I - A1 - C2 - C3         second-branch
+	 * |   \            /
+	 * \    \          /
+	 *  ----A2--------             branch-to-merge
+	 *  </pre>
+	 * <p>
+	 * <p>
+	 * Path "a" is initially a file in I and A1. It is changed to a directory in A2
+	 * ("branch-to-merge").
+	 * <p>
+	 * A2 is merged into "master" and "second-branch". The dir/file merge conflict is resolved
+	 * manually, results in C4 and C3.
+	 * <p>
+	 * While merging C3 and C4, A1 and A2 are the base commits found by the recursive merge that
+	 * have the dir/file conflict.
+	 */
+	@Theory
+	public void checkFileDirMergeConflictInVirtualAncestor_NoConflictInChildren(
+			MergeStrategy strategy)
+			throws Exception {
+		if (!strategy.equals(MergeStrategy.RECURSIVE)) {
+			return;
+		}
+
+		Git git = Git.wrap(db);
+
+		// master
+		writeTrashFile("a", "initial content");
+		git.add().addFilepattern("a").call();
+		RevCommit commitI = git.commit().setMessage("Initial commit").call();
+
+		writeTrashFile("a", "content in Ancestor 1");
+		git.add().addFilepattern("a").call();
+		RevCommit commitA1 = git.commit().setMessage("Ancestor 1").call();
+
+		writeTrashFile("a", "content in Child 1 (commited on master)");
+		git.add().addFilepattern("a").call();
+		// commit C1M
+		git.commit().setMessage("Child 1 on master").call();
+
+		git.checkout().setCreateBranch(true).setStartPoint(commitI).setName("branch-to-merge").call();
+		// "a" becomes a directory in A2
+		git.rm().addFilepattern("a").call();
+		writeTrashFile("a/content", "content in Ancestor 2 (commited on branch-to-merge)");
+		git.add().addFilepattern("a/content").call();
+		RevCommit commitA2 = git.commit().setMessage("Ancestor 2").call();
+
+		// second branch
+		git.checkout().setCreateBranch(true).setStartPoint(commitA1).setName("second-branch").call();
+		writeTrashFile("a", "content in Child 2 (commited on second-branch)");
+		git.add().addFilepattern("a").call();
+		// commit C2S
+		git.commit().setMessage("Child 2 on second-branch").call();
+
+		// Merge branch-to-merge into second-branch
+		MergeResult mergeResult = git.merge().include(commitA2).setStrategy(strategy).call();
+		assertEquals(mergeResult.getNewHead(), null);
+		assertEquals(mergeResult.getMergeStatus(), MergeStatus.CONFLICTING);
+		// Resolve the conflict manually, merge "a" as a file
+		git.rm().addFilepattern("a").call();
+		git.rm().addFilepattern("a/content").call();
+		writeTrashFile("a", "merge conflict resolution");
+		git.add().addFilepattern("a").call();
+		RevCommit commitC3S = git.commit().setMessage("Child 3 on second bug - resolve merge conflict")
+				.call();
+
+		// Merge branch-to-merge into master
+		git.checkout().setName("master").call();
+		mergeResult = git.merge().include(commitA2).setStrategy(strategy).call();
+		assertEquals(mergeResult.getNewHead(), null);
+		assertEquals(mergeResult.getMergeStatus(), MergeStatus.CONFLICTING);
+
+		// Resolve the conflict manually - merge "a" as a file
+		git.rm().addFilepattern("a").call();
+		git.rm().addFilepattern("a/content").call();
+		writeTrashFile("a", "merge conflict resolution");
+		git.add().addFilepattern("a").call();
+		// commit C4M
+		git.commit().setMessage("Child 4 on master - resolve merge conflict").call();
+
+		// Merge C4M (second-branch) into master (C3S)
+		// Conflict in virtual base should be here, but there are no conflicts in
+		// children
+		mergeResult = git.merge().include(commitC3S).call();
+		assertEquals(mergeResult.getMergeStatus(), MergeStatus.MERGED);
+
+	}
+
+	@Theory
+	public void checkFileDirMergeConflictInVirtualAncestor_ConflictInChildren_FileDir(MergeStrategy strategy)
+			throws Exception {
+		if (!strategy.equals(MergeStrategy.RECURSIVE)) {
+			return;
+		}
+
+		Git git = Git.wrap(db);
+
+		// master
+		writeTrashFile("a", "initial content");
+		git.add().addFilepattern("a").call();
+		RevCommit commitI = git.commit().setMessage("Initial commit").call();
+
+		writeTrashFile("a", "content in Ancestor 1");
+		git.add().addFilepattern("a").call();
+		RevCommit commitA1 = git.commit().setMessage("Ancestor 1").call();
+
+		writeTrashFile("a", "content in Child 1 (commited on master)");
+		git.add().addFilepattern("a").call();
+		// commit C1M
+		git.commit().setMessage("Child 1 on master").call();
+
+		git.checkout().setCreateBranch(true).setStartPoint(commitI).setName("branch-to-merge").call();
+
+		// "a" becomes a directory in A2
+		git.rm().addFilepattern("a").call();
+		writeTrashFile("a/content", "content in Ancestor 2 (commited on branch-to-merge)");
+		git.add().addFilepattern("a/content").call();
+		RevCommit commitA2 = git.commit().setMessage("Ancestor 2").call();
+
+		// second branch
+		git.checkout().setCreateBranch(true).setStartPoint(commitA1).setName("second-branch").call();
+		writeTrashFile("a", "content in Child 2 (commited on second-branch)");
+		git.add().addFilepattern("a").call();
+		// commit C2S
+		git.commit().setMessage("Child 2 on second-branch").call();
+
+		// Merge branch-to-merge into second-branch
+		MergeResult mergeResult = git.merge().include(commitA2).setStrategy(strategy).call();
+		assertEquals(mergeResult.getNewHead(), null);
+		assertEquals(mergeResult.getMergeStatus(), MergeStatus.CONFLICTING);
+		// Resolve the conflict manually - write a file
+		git.rm().addFilepattern("a").call();
+		git.rm().addFilepattern("a/content").call();
+		writeTrashFile("a",
+				"content in Child 3 (commited on second-branch) - merge conflict resolution");
+		git.add().addFilepattern("a").call();
+		RevCommit commitC3S = git.commit().setMessage("Child 3 on second bug - resolve merge conflict")
+				.call();
+
+		// Merge branch-to-merge into master
+		git.checkout().setName("master").call();
+		mergeResult = git.merge().include(commitA2).setStrategy(strategy).call();
+		assertEquals(mergeResult.getNewHead(), null);
+		assertEquals(mergeResult.getMergeStatus(), MergeStatus.CONFLICTING);
+
+		// Resolve the conflict manually - write a file
+		git.rm().addFilepattern("a").call();
+		git.rm().addFilepattern("a/content").call();
+		writeTrashFile("a", "content in Child 4 (commited on master) - merge conflict resolution");
+		git.add().addFilepattern("a").call();
+		// commit C4M
+		git.commit().setMessage("Child 4 on master - resolve merge conflict").call();
+
+		// Merge C4M (second-branch) into master (C3S)
+		// Conflict in virtual base should be here
+		mergeResult = git.merge().include(commitC3S).call();
+		assertEquals(mergeResult.getMergeStatus(), MergeStatus.CONFLICTING);
+		String expected =
+				"<<<<<<< HEAD\n" + "content in Child 4 (commited on master) - merge conflict resolution\n"
+						+ "=======\n"
+						+ "content in Child 3 (commited on second-branch) - merge conflict resolution\n"
+						+ ">>>>>>> " + commitC3S.name() + "\n";
+		assertEquals(expected, read("a"));
+		// Nothing was populated from the ancestors.
+		assertEquals(
+				"[a, mode:100644, stage:2, content:content in Child 4 (commited on master) - merge conflict resolution][a, mode:100644, stage:3, content:content in Child 3 (commited on second-branch) - merge conflict resolution]",
+				indexState(CONTENT));
+	}
+
+	/**
+	 * Same test as above, but "a" is a dir in A1 and a file in A2
+	 */
+	@Theory
+	public void checkFileDirMergeConflictInVirtualAncestor_ConflictInChildren_DirFile(MergeStrategy strategy)
+			throws Exception {
+		if (!strategy.equals(MergeStrategy.RECURSIVE)) {
+			return;
+		}
+
+		Git git = Git.wrap(db);
+
+		// master
+		writeTrashFile("a/content", "initial content");
+		git.add().addFilepattern("a/content").call();
+		RevCommit commitI = git.commit().setMessage("Initial commit").call();
+
+		writeTrashFile("a/content", "content in Ancestor 1");
+		git.add().addFilepattern("a/content").call();
+		RevCommit commitA1 = git.commit().setMessage("Ancestor 1").call();
+
+		writeTrashFile("a/content", "content in Child 1 (commited on master)");
+		git.add().addFilepattern("a/content").call();
+		// commit C1M
+		git.commit().setMessage("Child 1 on master").call();
+
+		git.checkout().setCreateBranch(true).setStartPoint(commitI).setName("branch-to-merge").call();
+
+		// "a" becomes a file in A2
+		git.rm().addFilepattern("a/content").call();
+		writeTrashFile("a", "content in Ancestor 2 (commited on branch-to-merge)");
+		git.add().addFilepattern("a").call();
+		RevCommit commitA2 = git.commit().setMessage("Ancestor 2").call();
+
+		// second branch
+		git.checkout().setCreateBranch(true).setStartPoint(commitA1).setName("second-branch").call();
+		writeTrashFile("a/content", "content in Child 2 (commited on second-branch)");
+		git.add().addFilepattern("a/content").call();
+		// commit C2S
+		git.commit().setMessage("Child 2 on second-branch").call();
+
+		// Merge branch-to-merge into second-branch
+		MergeResult mergeResult = git.merge().include(commitA2).setStrategy(strategy).call();
+		assertEquals(mergeResult.getNewHead(), null);
+		assertEquals(mergeResult.getMergeStatus(), MergeStatus.CONFLICTING);
+		// Resolve the conflict manually - write a file
+		git.rm().addFilepattern("a").call();
+		git.rm().addFilepattern("a/content").call();
+		deleteTrashFile("a/content");
+		deleteTrashFile("a");
+		writeTrashFile("a", "content in Child 3 (commited on second-branch) - merge conflict resolution");
+		git.add().addFilepattern("a").call();
+		RevCommit commitC3S = git.commit().setMessage("Child 3 on second bug - resolve merge conflict").call();
+
+		// Merge branch-to-merge into master
+		git.checkout().setName("master").call();
+		mergeResult = git.merge().include(commitA2).setStrategy(strategy).call();
+		assertEquals(mergeResult.getNewHead(), null);
+		assertEquals(mergeResult.getMergeStatus(), MergeStatus.CONFLICTING);
+
+		// Resolve the conflict manually - write a file
+		git.rm().addFilepattern("a").call();
+		git.rm().addFilepattern("a/content").call();
+		deleteTrashFile("a/content");
+		deleteTrashFile("a");
+		writeTrashFile("a", "content in Child 4 (commited on master) - merge conflict resolution");
+		git.add().addFilepattern("a").call();
+		// commit C4M
+		git.commit().setMessage("Child 4 on master - resolve merge conflict").call();
+
+		// Merge C4M (second-branch) into master (C3S)
+		// Conflict in virtual base should be here
+		mergeResult = git.merge().include(commitC3S).call();
+		assertEquals(mergeResult.getMergeStatus(), MergeStatus.CONFLICTING);
+		String expected = "<<<<<<< HEAD\n" + "content in Child 4 (commited on master) - merge conflict resolution\n"
+				+ "=======\n" + "content in Child 3 (commited on second-branch) - merge conflict resolution\n"
+				+ ">>>>>>> " + commitC3S.name() + "\n";
+		assertEquals(expected, read("a"));
+		// Nothing was populated from the ancestors.
+		assertEquals(
+				"[a, mode:100644, stage:2, content:content in Child 4 (commited on master) - merge conflict resolution][a, mode:100644, stage:3, content:content in Child 3 (commited on second-branch) - merge conflict resolution]",
+				indexState(CONTENT));
+	}
+
 	private void writeSubmodule(String path, ObjectId commit)
 			throws IOException, ConfigInvalidException {
 		addSubmoduleToIndex(path, commit);
@@ -1365,8 +1726,8 @@ public class MergerTest extends RepositoryTestCase {
 	}
 
 	private String readBlob(ObjectId treeish, String path) throws Exception {
-		try (TestRepository<?> tr = new TestRepository<>(db)) {
-			RevWalk rw = tr.getRevWalk();
+		try (TestRepository<?> tr = new TestRepository<>(db);
+				RevWalk rw = tr.getRevWalk()) {
 			RevTree tree = rw.parseTree(treeish);
 			RevObject obj = tr.get(tree, path);
 			if (obj == null) {

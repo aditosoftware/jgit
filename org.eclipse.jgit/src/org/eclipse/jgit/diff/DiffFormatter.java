@@ -1,45 +1,12 @@
 /*
  * Copyright (C) 2009, Google Inc.
- * Copyright (C) 2008-2009, Johannes E. Schindelin <johannes.schindelin@gmx.de>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2008-2020, Johannes E. Schindelin <johannes.schindelin@gmx.de> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.diff;
@@ -145,6 +112,8 @@ public class DiffFormatter implements AutoCloseable {
 
 	private Repository repository;
 
+	private Boolean quotePaths;
+
 	/**
 	 * Create a new formatter with a default level of context.
 	 *
@@ -199,6 +168,11 @@ public class DiffFormatter implements AutoCloseable {
 		this.closeReader = closeReader;
 		this.reader = reader;
 		this.diffCfg = cfg.get(DiffConfig.KEY);
+		if (quotePaths == null) {
+			quotePaths = Boolean
+					.valueOf(cfg.getBoolean(ConfigConstants.CONFIG_CORE_SECTION,
+							ConfigConstants.CONFIG_KEY_QUOTE_PATH, true));
+		}
 
 		ContentSource cs = ContentSource.create(reader);
 		source = new ContentSource.Pair(cs, cs);
@@ -379,6 +353,21 @@ public class DiffFormatter implements AutoCloseable {
 	}
 
 	/**
+	 * Sets whether or not path names should be quoted.
+	 * <p>
+	 * By default the setting of git config {@code core.quotePath} is active,
+	 * but this can be overridden through this method.
+	 * </p>
+	 *
+	 * @param quote
+	 *            whether to quote path names
+	 * @since 5.6
+	 */
+	public void setQuotePaths(boolean quote) {
+		quotePaths = Boolean.valueOf(quote);
+	}
+
+	/**
 	 * Set the filter to produce only specific paths.
 	 *
 	 * If the filter is an instance of
@@ -489,8 +478,8 @@ public class DiffFormatter implements AutoCloseable {
 			CanonicalTreeParser parser = new CanonicalTreeParser();
 			parser.reset(reader, tree);
 			return parser;
-		} else
-			return new EmptyTreeIterator();
+		}
+		return new EmptyTreeIterator();
 	}
 
 	/**
@@ -513,9 +502,18 @@ public class DiffFormatter implements AutoCloseable {
 			throws IOException {
 		assertHaveReader();
 
-		TreeWalk walk = new TreeWalk(reader);
-		walk.addTree(a);
-		walk.addTree(b);
+		TreeWalk walk = new TreeWalk(repository, reader);
+		int aIndex = walk.addTree(a);
+		int bIndex = walk.addTree(b);
+		if (repository != null) {
+			if (a instanceof WorkingTreeIterator
+					&& b instanceof DirCacheIterator) {
+				((WorkingTreeIterator) a).setDirCacheIterator(walk, bIndex);
+			} else if (b instanceof WorkingTreeIterator
+					&& a instanceof DirCacheIterator) {
+				((WorkingTreeIterator) b).setDirCacheIterator(walk, aIndex);
+			}
+		}
 		walk.setRecursive(true);
 
 		TreeFilter filter = getDiffTreeFilterFor(a, b);
@@ -726,8 +724,11 @@ public class DiffFormatter implements AutoCloseable {
 		return id.name();
 	}
 
-	private static String quotePath(String name) {
-		return QuotedString.GIT_PATH.quote(name);
+	private String quotePath(String path) {
+		if (quotePaths == null || quotePaths.booleanValue()) {
+			return QuotedString.GIT_PATH.quote(path);
+		}
+		return QuotedString.GIT_PATH_MINIMAL.quote(path);
 	}
 
 	/**

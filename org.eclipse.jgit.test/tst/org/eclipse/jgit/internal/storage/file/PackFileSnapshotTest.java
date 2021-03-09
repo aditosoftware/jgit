@@ -1,49 +1,17 @@
 /*
- * Copyright (C) 2019, Matthias Sohn <matthias.sohn@sap.com>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2019, Matthias Sohn <matthias.sohn@sap.com> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 package org.eclipse.jgit.internal.storage.file;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeFalse;
 import static org.junit.Assume.assumeTrue;
@@ -104,14 +72,14 @@ public class PackFileSnapshotTest extends RepositoryTestCase {
 		c.setInt(ConfigConstants.CONFIG_GC_SECTION, null,
 				ConfigConstants.CONFIG_KEY_AUTOPACKLIMIT, 1);
 		c.save();
-		Collection<PackFile> packs = gc(Deflater.NO_COMPRESSION);
+		Collection<Pack> packs = gc(Deflater.NO_COMPRESSION);
 		assertEquals("expected 1 packfile after gc", 1, packs.size());
-		PackFile p1 = packs.iterator().next();
+		Pack p1 = packs.iterator().next();
 		PackFileSnapshot snapshot = p1.getFileSnapshot();
 
 		packs = gc(Deflater.BEST_COMPRESSION);
 		assertEquals("expected 1 packfile after gc", 1, packs.size());
-		PackFile p2 = packs.iterator().next();
+		Pack p2 = packs.iterator().next();
 		File pf = p2.getPackFile();
 
 		// changing compression level with aggressive gc may change size,
@@ -185,11 +153,11 @@ public class PackFileSnapshotTest extends RepositoryTestCase {
 		createTestRepo(testDataSeed, testDataLength);
 
 		// repack to create initial packfile
-		PackFile pf = repackAndCheck(5, null, null, null);
-		Path packFilePath = pf.getPackFile().toPath();
-		AnyObjectId chk1 = pf.getPackChecksum();
-		String name = pf.getPackName();
-		Long length = Long.valueOf(pf.getPackFile().length());
+		Pack p = repackAndCheck(5, null, null, null);
+		Path packFilePath = p.getPackFile().toPath();
+		AnyObjectId chk1 = p.getPackChecksum();
+		String name = p.getPackName();
+		Long length = Long.valueOf(p.getPackFile().length());
 		FS fs = db.getFS();
 		Instant m1 = fs.lastModifiedInstant(packFilePath);
 
@@ -239,13 +207,16 @@ public class PackFileSnapshotTest extends RepositoryTestCase {
 		createTestRepo(testDataSeed, testDataLength);
 
 		// Repack to create initial packfile. Make a copy of it
-		PackFile pf = repackAndCheck(5, null, null, null);
-		Path packFilePath = pf.getPackFile().toPath();
-		Path packFileBasePath = packFilePath.resolveSibling(
-				packFilePath.getFileName().toString().replaceAll(".pack", ""));
-		AnyObjectId chk1 = pf.getPackChecksum();
-		String name = pf.getPackName();
-		Long length = Long.valueOf(pf.getPackFile().length());
+		Pack p = repackAndCheck(5, null, null, null);
+		Path packFilePath = p.getPackFile().toPath();
+		Path fn = packFilePath.getFileName();
+		assertNotNull(fn);
+		String packFileName = fn.toString();
+		Path packFileBasePath = packFilePath
+				.resolveSibling(packFileName.replaceAll(".pack", ""));
+		AnyObjectId chk1 = p.getPackChecksum();
+		String name = p.getPackName();
+		Long length = Long.valueOf(p.getPackFile().length());
 		copyPack(packFileBasePath, "", ".copy1");
 
 		// Repack to create second packfile. Make a copy of it
@@ -295,9 +266,8 @@ public class PackFileSnapshotTest extends RepositoryTestCase {
 				Files.copy(src, dstOut);
 				return dst;
 			}
-		} else {
-			return Files.copy(src, dst, StandardCopyOption.REPLACE_EXISTING);
 		}
+		return Files.copy(src, dst, StandardCopyOption.REPLACE_EXISTING);
 	}
 
 	private Path copyPack(Path base, String srcSuffix, String dstSuffix)
@@ -310,10 +280,10 @@ public class PackFileSnapshotTest extends RepositoryTestCase {
 				Paths.get(base + ".pack" + dstSuffix));
 	}
 
-	private PackFile repackAndCheck(int compressionLevel, String oldName,
+	private Pack repackAndCheck(int compressionLevel, String oldName,
 			Long oldLength, AnyObjectId oldChkSum)
 			throws IOException, ParseException {
-		PackFile p = getSinglePack(gc(compressionLevel));
+		Pack p = getSinglePack(gc(compressionLevel));
 		File pf = p.getPackFile();
 		// The following two assumptions should not cause the test to fail. If
 		// on a certain platform we get packfiles (containing the same git
@@ -328,14 +298,14 @@ public class PackFileSnapshotTest extends RepositoryTestCase {
 		return p;
 	}
 
-	private PackFile getSinglePack(Collection<PackFile> packs) {
-		Iterator<PackFile> pIt = packs.iterator();
-		PackFile p = pIt.next();
+	private Pack getSinglePack(Collection<Pack> packs) {
+		Iterator<Pack> pIt = packs.iterator();
+		Pack p = pIt.next();
 		assertFalse(pIt.hasNext());
 		return p;
 	}
 
-	private Collection<PackFile> gc(int compressionLevel)
+	private Collection<Pack> gc(int compressionLevel)
 			throws IOException, ParseException {
 		GC gc = new GC(db);
 		PackConfig pc = new PackConfig(db.getConfig());

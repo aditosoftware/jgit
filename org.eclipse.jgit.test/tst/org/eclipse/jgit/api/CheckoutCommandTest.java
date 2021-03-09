@@ -1,45 +1,12 @@
 /*
  * Copyright (C) 2010, Chris Aniszczyk <caniszczyk@gmail.com>
- * Copyright (C) 2011, Matthias Sohn <matthias.sohn@sap.com>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2011, Matthias Sohn <matthias.sohn@sap.com> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 package org.eclipse.jgit.api;
 
@@ -155,6 +122,77 @@ public class CheckoutCommandTest extends RepositoryTestCase {
 		}
 		assertEquals(initialCommit.getId(), git.checkout().setName("master")
 				.setForced(true).call().getObjectId());
+	}
+
+	@Test
+	public void testCheckoutForced_deleteFileAndRestore() throws Exception {
+		File testFile = new File(db.getWorkTree(), "Test.txt");
+		assertTrue(testFile.exists());
+
+		assertEquals("test", git.getRepository().getBranch());
+		FileUtils.delete(testFile);
+		assertFalse(testFile.exists());
+		// Switch from "test" to "master".
+		assertEquals(initialCommit.getId(), git.checkout().setName("master")
+				.setForced(true).call().getObjectId());
+		assertTrue(testFile.exists());
+
+		assertEquals("master", git.getRepository().getBranch());
+		FileUtils.delete(testFile);
+		assertFalse(testFile.exists());
+		// Stay in current branch.
+		assertEquals(initialCommit.getId(), git.checkout().setName("master")
+				.setForced(true).call().getObjectId());
+		assertTrue(testFile.exists());
+	}
+
+	@Test
+	public void testCheckoutForcedNoChangeNotInIndex() throws Exception {
+		git.checkout().setCreateBranch(true).setName("test2").call();
+		File f = writeTrashFile("NewFile.txt", "New file");
+		git.add().addFilepattern("NewFile.txt").call();
+		git.commit().setMessage("New file created").call();
+		git.checkout().setName("test").call();
+		assertFalse("NewFile.txt should not exist", f.exists());
+		writeTrashFile("NewFile.txt", "New file");
+		git.add().addFilepattern("NewFile.txt").call();
+		git.commit().setMessage("New file created again with same content")
+				.call();
+		// Now remove the file from the index only. So it exists in both
+		// commits, and in the working tree, but not in the index.
+		git.rm().addFilepattern("NewFile.txt").setCached(true).call();
+		assertTrue("NewFile.txt should exist", f.isFile());
+		git.checkout().setForced(true).setName("test2").call();
+		assertTrue("NewFile.txt should exist", f.isFile());
+		assertEquals(Constants.R_HEADS + "test2", git.getRepository()
+				.exactRef(Constants.HEAD).getTarget().getName());
+		assertTrue("Force checkout should have undone git rm --cached",
+				git.status().call().isClean());
+	}
+
+	@Test
+	public void testCheckoutNoChangeNotInIndex() throws Exception {
+		git.checkout().setCreateBranch(true).setName("test2").call();
+		File f = writeTrashFile("NewFile.txt", "New file");
+		git.add().addFilepattern("NewFile.txt").call();
+		git.commit().setMessage("New file created").call();
+		git.checkout().setName("test").call();
+		assertFalse("NewFile.txt should not exist", f.exists());
+		writeTrashFile("NewFile.txt", "New file");
+		git.add().addFilepattern("NewFile.txt").call();
+		git.commit().setMessage("New file created again with same content")
+				.call();
+		// Now remove the file from the index only. So it exists in both
+		// commits, and in the working tree, but not in the index.
+		git.rm().addFilepattern("NewFile.txt").setCached(true).call();
+		assertTrue("NewFile.txt should exist", f.isFile());
+		git.checkout().setName("test2").call();
+		assertTrue("NewFile.txt should exist", f.isFile());
+		assertEquals(Constants.R_HEADS + "test2", git.getRepository()
+				.exactRef(Constants.HEAD).getTarget().getName());
+		org.eclipse.jgit.api.Status status = git.status().call();
+		assertEquals("[NewFile.txt]", status.getRemoved().toString());
+		assertEquals("[NewFile.txt]", status.getUntracked().toString());
 	}
 
 	@Test

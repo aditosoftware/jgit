@@ -1,49 +1,17 @@
 /*
- * Copyright (C) 2017, Google Inc.
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2017, Google Inc. and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.internal.storage.reftable;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.PriorityQueue;
 
@@ -94,8 +62,43 @@ public class MergedReftable extends Reftable {
 	 */
 	@Override
 	public long maxUpdateIndex() throws IOException {
-		return tables.length > 0 ? tables[tables.length - 1].maxUpdateIndex()
-				: 0;
+		if (tables.length == 0) {
+			return 0;
+		}
+		long maxUpdateIndex = tables[tables.length - 1].maxUpdateIndex();
+		for (int i = tables.length - 2; i >= 0; i--) {
+			if (maxUpdateIndex < tables[i].maxUpdateIndex()) {
+				maxUpdateIndex = tables[i].maxUpdateIndex();
+			}
+		}
+		return maxUpdateIndex;
+	}
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public long minUpdateIndex() throws IOException {
+		if (tables.length == 0) {
+			return 0;
+		}
+		long minUpdateIndex = tables[0].minUpdateIndex();
+		for (int i = 1; i < tables.length; i++) {
+			if (tables[i].minUpdateIndex() < minUpdateIndex) {
+				minUpdateIndex = tables[i].minUpdateIndex();
+			}
+		}
+		return minUpdateIndex;
+	}
+
+	/** {@inheritDoc} */
+	@Override
+	public boolean hasObjectMap() throws IOException {
+		boolean has = true;
+		for (int i = 0; has && i < tables.length; i++) {
+			has = has && tables[i].hasObjectMap();
+		}
+		return has;
 	}
 
 	/** {@inheritDoc} */
@@ -131,7 +134,7 @@ public class MergedReftable extends Reftable {
 	/** {@inheritDoc} */
 	@Override
 	public RefCursor byObjectId(AnyObjectId name) throws IOException {
-		MergedRefCursor m = new MergedRefCursor();
+		MergedRefCursor m = new FilteringMergedRefCursor(name);
 		for (int i = 0; i < tables.length; i++) {
 			m.add(new RefQueueEntry(tables[i].byObjectId(name), i));
 		}
@@ -213,6 +216,23 @@ public class MergedReftable extends Reftable {
 			}
 		}
 
+		@Override
+		public void seekPastPrefix(String prefixName) throws IOException {
+			List<RefQueueEntry> entriesToAdd = new ArrayList<>();
+			entriesToAdd.addAll(queue);
+			if (head != null) {
+				entriesToAdd.add(head);
+			}
+
+			head = null;
+			queue.clear();
+
+			for(RefQueueEntry entry : entriesToAdd){
+				entry.rc.seekPastPrefix(prefixName);
+				add(entry);
+			}
+		}
+
 		private RefQueueEntry poll() {
 			RefQueueEntry e = head;
 			if (e != null) {
@@ -246,6 +266,42 @@ public class MergedReftable extends Reftable {
 			}
 			while (!queue.isEmpty()) {
 				queue.remove().rc.close();
+			}
+		}
+	}
+
+	private class FilteringMergedRefCursor extends MergedRefCursor {
+		final AnyObjectId filterId;
+		Ref filteredRef;
+
+		FilteringMergedRefCursor(AnyObjectId id) {
+			filterId = id;
+			filteredRef = null;
+		}
+
+		@Override
+		public Ref getRef() {
+			return filteredRef;
+		}
+
+		@Override
+		public boolean next() throws IOException {
+			for (;;) {
+				boolean ok = super.next();
+				if (!ok) {
+					return false;
+				}
+
+				String name = super.getRef().getName();
+
+				try (RefCursor c = seekRef(name)) {
+					if (c.next()) {
+						if (filterId.equals(c.getRef().getObjectId())) {
+							filteredRef = c.getRef();
+							return true;
+						}
+					}
+				}
 			}
 		}
 	}

@@ -13,6 +13,7 @@ junit_tests(
     deps = [
         ":helpers",
         "//lib:junit",
+        "//lib:slf4j-api",
         "//org.eclipse.jgit:jgit",
         "//org.eclipse.jgit.junit:junit",
         "//org.eclipse.jgit.lfs:jgit-lfs",
@@ -25,8 +26,6 @@ java_library(
     srcs = glob(["src/**/*.java"]),
     deps = [
         "//lib:junit",
-        "//org.eclipse.jgit:jgit",
-        "//org.eclipse.jgit.junit:junit",
         "//org.eclipse.jgit.lfs:jgit-lfs",
     ],
 )

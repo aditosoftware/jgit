@@ -1,47 +1,15 @@
 /*
- * Copyright (C) 2013, CloudBees, Inc.
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2013, CloudBees, Inc. and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 package org.eclipse.jgit.api;
 
+import static org.eclipse.jgit.lib.Constants.R_REFS;
 import static org.eclipse.jgit.lib.Constants.R_TAGS;
 
 import java.io.IOException;
@@ -104,6 +72,11 @@ public class DescribeCommand extends GitCommand<String> {
 	 * Pattern matchers to be applied to tags under consideration.
 	 */
 	private List<FileNameMatcher> matchers = new ArrayList<>();
+
+	/**
+	 * Whether to use all refs in the refs/ namespace
+	 */
+	private boolean useAll;
 
 	/**
 	 * Whether to use all tags (incl. lightweight) or not.
@@ -186,6 +159,22 @@ public class DescribeCommand extends GitCommand<String> {
 	}
 
 	/**
+	 * Instead of using only the annotated tags, use any ref found in refs/
+	 * namespace. This option enables matching any known branch,
+	 * remote-tracking branch, or lightweight tag.
+	 *
+	 * @param all
+	 *            <code>true</code> enables matching any ref found in refs/
+	 *            like setting option --all in c git
+	 * @return {@code this}
+	 * @since 5.10
+	 */
+	public DescribeCommand setAll(boolean all) {
+		this.useAll = all;
+		return this;
+	}
+
+	/**
 	 * Instead of using only the annotated tags, use any tag found in refs/tags
 	 * namespace. This option enables matching lightweight (non-annotated) tags
 	 * or not.
@@ -219,7 +208,7 @@ public class DescribeCommand extends GitCommand<String> {
 	private String longDescription(Ref tag, int depth, ObjectId tip)
 			throws IOException {
 		return String.format(
-				"%s-%d-g%s", tag.getName().substring(R_TAGS.length()), //$NON-NLS-1$
+				"%s-%d-g%s", formatRefName(tag.getName()), //$NON-NLS-1$
 				Integer.valueOf(depth), w.getObjectReader().abbreviate(tip)
 						.name());
 	}
@@ -277,8 +266,7 @@ public class DescribeCommand extends GitCommand<String> {
 			for (FileNameMatcher matcher : matchers) {
 				Stream<Ref> m = tags.stream().filter(
 						tag -> {
-							matcher.append(
-									tag.getName().substring(R_TAGS.length()));
+							matcher.append(formatRefName(tag.getName()));
 							boolean result = matcher.isMatch();
 							matcher.reset();
 							return result;
@@ -316,7 +304,7 @@ public class DescribeCommand extends GitCommand<String> {
 			}
 
 			Collection<Ref> tagList = repo.getRefDatabase()
-					.getRefsByPrefix(R_TAGS);
+					.getRefsByPrefix(useAll ? R_REFS : R_TAGS);
 			Map<ObjectId, List<Ref>> tags = tagList.stream()
 					.filter(this::filterLightweightTags)
 					.collect(Collectors.groupingBy(this::getObjectIdFromRef));
@@ -369,7 +357,7 @@ public class DescribeCommand extends GitCommand<String> {
 			Optional<Ref> bestMatch = getBestMatch(tags.get(target));
 			if (bestMatch.isPresent()) {
 				return longDesc ? longDescription(bestMatch.get(), 0, target) :
-						bestMatch.get().getName().substring(R_TAGS.length());
+						formatRefName(bestMatch.get().getName());
 			}
 
 			w.markStart(target);
@@ -441,6 +429,16 @@ public class DescribeCommand extends GitCommand<String> {
 	}
 
 	/**
+	 * Removes the refs/ or refs/tags prefix from tag names
+	 * @param name the name of the tag
+	 * @return the tag name with its prefix removed
+	 */
+	private String formatRefName(String name) {
+		return name.startsWith(R_TAGS) ? name.substring(R_TAGS.length()) :
+				name.substring(R_REFS.length());
+	}
+
+	/**
 	 * Whether we use lightweight tags or not for describe Candidates
 	 *
 	 * @param ref
@@ -452,7 +450,7 @@ public class DescribeCommand extends GitCommand<String> {
 	private boolean filterLightweightTags(Ref ref) {
 		ObjectId id = ref.getObjectId();
 		try {
-			return this.useTags || (id != null && (w.parseTag(id) != null));
+			return this.useAll || this.useTags || (id != null && (w.parseTag(id) != null));
 		} catch (IOException e) {
 			return false;
 		}

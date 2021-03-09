@@ -7,52 +7,22 @@
  * Copyright (C) 2009, JetBrains s.r.o.
  * Copyright (C) 2007-2008, Robin Rosenberg <robin.rosenberg@dewire.com>
  * Copyright (C) 2006-2008, Shawn O. Pearce <spearce@spearce.org>
- * Copyright (C) 2008, Thad Hughes <thadh@thad.corp.google.com>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2008, Thad Hughes <thadh@thad.corp.google.com> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.lib;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
+import java.io.File;
+import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -62,6 +32,7 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.eclipse.jgit.annotations.NonNull;
 import org.eclipse.jgit.errors.ConfigInvalidException;
 import org.eclipse.jgit.events.ConfigChangedEvent;
 import org.eclipse.jgit.events.ConfigChangedListener;
@@ -69,6 +40,7 @@ import org.eclipse.jgit.events.ListenerHandle;
 import org.eclipse.jgit.events.ListenerList;
 import org.eclipse.jgit.internal.JGitText;
 import org.eclipse.jgit.transport.RefSpec;
+import org.eclipse.jgit.util.FS;
 import org.eclipse.jgit.util.RawParseUtils;
 
 /**
@@ -129,9 +101,21 @@ public class Config {
 	}
 
 	/**
+	 * Retrieves this config's base config.
+	 *
+	 * @return the base configuration of this config.
+	 *
+	 * @since 5.5.2
+	 */
+	public Config getBaseConfig() {
+		return baseConfig;
+	}
+
+	/**
 	 * Check if a given string is the "missing" value.
 	 *
-	 * @param value string to be checked.
+	 * @param value
+	 *            string to be checked.
 	 * @return true if the given string is the "missing" value.
 	 * @since 5.4
 	 */
@@ -493,6 +477,37 @@ public class Config {
 			long defaultValue, TimeUnit wantUnit) {
 		return typedGetter.getTimeUnit(this, section, subsection, name,
 				defaultValue, wantUnit);
+	}
+
+	/**
+	 * Parse a string value and treat it as a file path, replacing a ~/ prefix
+	 * by the user's home directory.
+	 * <p>
+	 * <b>Note:</b> this may throw {@link InvalidPathException} if the string is
+	 * not a valid path.
+	 * </p>
+	 *
+	 * @param section
+	 *            section the key is in.
+	 * @param subsection
+	 *            subsection the key is in, or null if not in a subsection.
+	 * @param name
+	 *            the key name.
+	 * @param fs
+	 *            to use to convert the string into a path.
+	 * @param resolveAgainst
+	 *            directory to resolve the path against if it is a relative
+	 *            path; {@code null} to use the Java process's current
+	 *            directory.
+	 * @param defaultValue
+	 *            to return if no value was present
+	 * @return the {@link Path}, or {@code defaultValue} if not set
+	 * @since 5.10
+	 */
+	public Path getPath(String section, String subsection, String name,
+			@NonNull FS fs, File resolveAgainst, Path defaultValue) {
+		return typedGetter.getPath(this, section, subsection, name, fs,
+				resolveAgainst, defaultValue);
 	}
 
 	/**
@@ -1395,12 +1410,11 @@ public class Config {
 				}
 				trailingSpaces.append(cc);
 				continue;
-			} else {
-				inLeadingSpace = false;
-				if (trailingSpaces != null) {
-					value.append(trailingSpaces);
-					trailingSpaces.setLength(0);
-				}
+			}
+			inLeadingSpace = false;
+			if (trailingSpaces != null) {
+				value.append(trailingSpaces);
+				trailingSpaces.setLength(0);
 			}
 
 			if ('\\' == c) {

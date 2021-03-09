@@ -1,44 +1,11 @@
 /*
- * Copyright (C) 2010, Chris Aniszczyk <caniszczyk@gmail.com>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2010, Chris Aniszczyk <caniszczyk@gmail.com> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 package org.eclipse.jgit.api;
 
@@ -48,12 +15,16 @@ import java.text.MessageFormat;
 import java.util.concurrent.Callable;
 
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.api.errors.InvalidRefNameException;
 import org.eclipse.jgit.api.errors.JGitInternalException;
+import org.eclipse.jgit.errors.ConfigInvalidException;
 import org.eclipse.jgit.internal.JGitText;
+import org.eclipse.jgit.lib.ConfigConstants;
 import org.eclipse.jgit.lib.Constants;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.lib.RepositoryBuilder;
 import org.eclipse.jgit.util.FS;
+import org.eclipse.jgit.util.StringUtils;
 import org.eclipse.jgit.util.SystemReader;
 
 /**
@@ -70,6 +41,8 @@ public class InitCommand implements Callable<Git> {
 	private boolean bare;
 
 	private FS fs;
+
+	private String initialBranch;
 
 	/**
 	 * {@inheritDoc}
@@ -120,11 +93,16 @@ public class InitCommand implements Callable<Git> {
 					builder.setWorkTree(new File(dStr));
 				}
 			}
+			builder.setInitialBranch(StringUtils.isEmptyOrNull(initialBranch)
+					? SystemReader.getInstance().getUserConfig().getString(
+							ConfigConstants.CONFIG_INIT_SECTION, null,
+							ConfigConstants.CONFIG_KEY_DEFAULT_BRANCH)
+					: initialBranch);
 			Repository repository = builder.build();
 			if (!repository.getObjectDatabase().exists())
 				repository.create(bare);
 			return new Git(repository, true);
-		} catch (IOException e) {
+		} catch (IOException | ConfigInvalidException e) {
 			throw new JGitInternalException(e.getMessage(), e);
 		}
 	}
@@ -215,6 +193,25 @@ public class InitCommand implements Callable<Git> {
 	 */
 	public InitCommand setFs(FS fs) {
 		this.fs = fs;
+		return this;
+	}
+
+	/**
+	 * Set the initial branch of the new repository. If not specified
+	 * ({@code null} or empty), fall back to the default name (currently
+	 * master).
+	 *
+	 * @param branch
+	 *            initial branch name of the new repository
+	 * @return {@code this}
+	 * @throws InvalidRefNameException
+	 *             if the branch name is not valid
+	 *
+	 * @since 5.11
+	 */
+	public InitCommand setInitialBranch(String branch)
+			throws InvalidRefNameException {
+		this.initialBranch = branch;
 		return this;
 	}
 }

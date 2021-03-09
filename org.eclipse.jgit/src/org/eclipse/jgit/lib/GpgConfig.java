@@ -1,44 +1,11 @@
 /*
- * Copyright (C) 2018, Salesforce.
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2018, 2021 Salesforce and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 package org.eclipse.jgit.lib;
 
@@ -76,16 +43,65 @@ public class GpgConfig {
 		}
 	}
 
-	private final Config config;
+	private final GpgFormat keyFormat;
+
+	private final String signingKey;
+
+	private final String program;
+
+	private final boolean signCommits;
+
+	private final boolean signAllTags;
+
+	private final boolean forceAnnotated;
 
 	/**
-	 * Create a new GPG config, which will read configuration from config.
+	 * Create a {@link GpgConfig} with the given parameters and default
+	 * {@code true} for signing commits and {@code false} for tags.
+	 *
+	 * @param keySpec
+	 *            to use
+	 * @param format
+	 *            to use
+	 * @param gpgProgram
+	 *            to use
+	 * @since 5.11
+	 */
+	public GpgConfig(String keySpec, GpgFormat format, String gpgProgram) {
+		keyFormat = format;
+		signingKey = keySpec;
+		program = gpgProgram;
+		signCommits = true;
+		signAllTags = false;
+		forceAnnotated = false;
+	}
+
+	/**
+	 * Create a new GPG config that reads the configuration from config.
 	 *
 	 * @param config
 	 *            the config to read from
 	 */
 	public GpgConfig(Config config) {
-		this.config = config;
+		keyFormat = config.getEnum(GpgFormat.values(),
+				ConfigConstants.CONFIG_GPG_SECTION, null,
+				ConfigConstants.CONFIG_KEY_FORMAT, GpgFormat.OPENPGP);
+		signingKey = config.getString(ConfigConstants.CONFIG_USER_SECTION, null,
+				ConfigConstants.CONFIG_KEY_SIGNINGKEY);
+
+		String exe = config.getString(ConfigConstants.CONFIG_GPG_SECTION,
+				keyFormat.toConfigValue(), ConfigConstants.CONFIG_KEY_PROGRAM);
+		if (exe == null) {
+			exe = config.getString(ConfigConstants.CONFIG_GPG_SECTION, null,
+					ConfigConstants.CONFIG_KEY_PROGRAM);
+		}
+		program = exe;
+		signCommits = config.getBoolean(ConfigConstants.CONFIG_COMMIT_SECTION,
+				ConfigConstants.CONFIG_KEY_GPGSIGN, false);
+		signAllTags = config.getBoolean(ConfigConstants.CONFIG_TAG_SECTION,
+				ConfigConstants.CONFIG_KEY_GPGSIGN, false);
+		forceAnnotated = config.getBoolean(ConfigConstants.CONFIG_TAG_SECTION,
+				ConfigConstants.CONFIG_KEY_FORCE_SIGN_ANNOTATED, false);
 	}
 
 	/**
@@ -94,9 +110,19 @@ public class GpgConfig {
 	 * @return the {@link org.eclipse.jgit.lib.GpgConfig.GpgFormat}
 	 */
 	public GpgFormat getKeyFormat() {
-		return config.getEnum(GpgFormat.values(),
-				ConfigConstants.CONFIG_GPG_SECTION, null,
-				ConfigConstants.CONFIG_KEY_FORMAT, GpgFormat.OPENPGP);
+		return keyFormat;
+	}
+
+	/**
+	 * Retrieves the value of the configured GPG program to use, as defined by
+	 * gpg.openpgp.program, gpg.x509.program (depending on the defined
+	 * {@link #getKeyFormat() format}), or gpg.program.
+	 *
+	 * @return the program string configured, or {@code null} if none
+	 * @since 5.11
+	 */
+	public String getProgram() {
+		return program;
 	}
 
 	/**
@@ -105,8 +131,7 @@ public class GpgConfig {
 	 * @return the value of user.signingKey (may be <code>null</code>)
 	 */
 	public String getSigningKey() {
-		return config.getString(ConfigConstants.CONFIG_USER_SECTION, null,
-				ConfigConstants.CONFIG_KEY_SIGNINGKEY);
+		return signingKey;
 	}
 
 	/**
@@ -115,7 +140,29 @@ public class GpgConfig {
 	 * @return the value of commit.gpgSign (defaults to <code>false</code>)
 	 */
 	public boolean isSignCommits() {
-		return config.getBoolean(ConfigConstants.CONFIG_COMMIT_SECTION,
-				ConfigConstants.CONFIG_KEY_GPGSIGN, false);
+		return signCommits;
+	}
+
+	/**
+	 * Retrieves the value of git config {@code tag.gpgSign}.
+	 *
+	 * @return the value of {@code tag.gpgSign}; by default {@code false}
+	 *
+	 * @since 5.11
+	 */
+	public boolean isSignAllTags() {
+		return signAllTags;
+	}
+
+	/**
+	 * Retrieves the value of git config {@code tag.forceSignAnnotated}.
+	 *
+	 * @return the value of {@code tag.forceSignAnnotated}; by default
+	 *         {@code false}
+	 *
+	 * @since 5.11
+	 */
+	public boolean isSignAnnotated() {
+		return forceAnnotated;
 	}
 }

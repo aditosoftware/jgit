@@ -1,45 +1,12 @@
 /*
  * Copyright (C) 2008-2010, Google Inc.
- * Copyright (C) 2008, Marek Zawirski <marek.zawirski@gmail.com>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2008, Marek Zawirski <marek.zawirski@gmail.com> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.internal.storage.pack;
@@ -175,43 +142,42 @@ public class PackWriter implements AutoCloseable {
 	private static final Map<WeakReference<PackWriter>, Boolean> instances =
 			new ConcurrentHashMap<>();
 
-	private static final Iterable<PackWriter> instancesIterable = new Iterable<PackWriter>() {
+	private static final Iterable<PackWriter> instancesIterable = () -> new Iterator<PackWriter>() {
+
+		private final Iterator<WeakReference<PackWriter>> it = instances
+				.keySet().iterator();
+
+		private PackWriter next;
+
 		@Override
-		public Iterator<PackWriter> iterator() {
-			return new Iterator<PackWriter>() {
-				private final Iterator<WeakReference<PackWriter>> it =
-						instances.keySet().iterator();
-				private PackWriter next;
-
-				@Override
-				public boolean hasNext() {
-					if (next != null)
-						return true;
-					while (it.hasNext()) {
-						WeakReference<PackWriter> ref = it.next();
-						next = ref.get();
-						if (next != null)
-							return true;
-						it.remove();
-					}
-					return false;
+		public boolean hasNext() {
+			if (next != null) {
+				return true;
+			}
+			while (it.hasNext()) {
+				WeakReference<PackWriter> ref = it.next();
+				next = ref.get();
+				if (next != null) {
+					return true;
 				}
+				it.remove();
+			}
+			return false;
+		}
 
-				@Override
-				public PackWriter next() {
-					if (hasNext()) {
-						PackWriter result = next;
-						next = null;
-						return result;
-					}
-					throw new NoSuchElementException();
-				}
+		@Override
+		public PackWriter next() {
+			if (hasNext()) {
+				PackWriter result = next;
+				next = null;
+				return result;
+			}
+			throw new NoSuchElementException();
+		}
 
-				@Override
-				public void remove() {
-					throw new UnsupportedOperationException();
-				}
-			};
+		@Override
+		public void remove() {
+			throw new UnsupportedOperationException();
 		}
 	};
 
@@ -225,7 +191,7 @@ public class PackWriter implements AutoCloseable {
 	}
 
 	@SuppressWarnings("unchecked")
-	BlockList<ObjectToPack> objectsLists[] = new BlockList[OBJ_TAG + 1];
+	BlockList<ObjectToPack>[] objectsLists = new BlockList[OBJ_TAG + 1];
 	{
 		objectsLists[OBJ_COMMIT] = new BlockList<>();
 		objectsLists[OBJ_TREE] = new BlockList<>();
@@ -270,7 +236,7 @@ public class PackWriter implements AutoCloseable {
 
 	private List<ObjectToPack> sortedByName;
 
-	private byte packcsum[];
+	private byte[] packcsum;
 
 	private boolean deltaBaseAsOffset;
 
@@ -790,6 +756,19 @@ public class PackWriter implements AutoCloseable {
 
 	/**
 	 * Prepare the list of objects to be written to the pack stream.
+	 *
+	 * <p>
+	 * PackWriter will concat and write out the specified packs as-is.
+	 *
+	 * @param c
+	 *            cached packs to be written.
+	 */
+	public void preparePack(Collection<? extends CachedPack> c) {
+		cachedPacks.addAll(c);
+	}
+
+	/**
+	 * Prepare the list of objects to be written to the pack stream.
 	 * <p>
 	 * Basing on these 2 sets, another set of objects to put in a pack file is
 	 * created: this set consists of all objects reachable (ancestors) from
@@ -1230,6 +1209,8 @@ public class PackWriter implements AutoCloseable {
 					if (packInfo != null) {
 						o.writeString(packInfo.getHash() + ' ' +
 								packInfo.getUri() + '\n');
+						stats.offloadedPackfiles += 1;
+						stats.offloadedPackfileSize += packInfo.getSize();
 					} else {
 						unwrittenCachedPacks.add(pack);
 					}
@@ -1580,6 +1561,7 @@ public class PackWriter implements AutoCloseable {
 		endPhase(monitor);
 	}
 
+	@SuppressWarnings("Finally")
 	private void parallelDeltaSearch(ProgressMonitor monitor,
 			ObjectToPack[] list, int cnt, int threads) throws IOException {
 		DeltaCache dc = new ThreadSafeDeltaCache(config);
@@ -1601,17 +1583,24 @@ public class PackWriter implements AutoCloseable {
 			// Caller didn't give us a way to run the tasks, spawn up a
 			// temporary thread pool and make sure it tears down cleanly.
 			ExecutorService pool = Executors.newFixedThreadPool(threads);
+			Throwable e1 = null;
 			try {
 				runTasks(pool, pm, taskBlock, errors);
+			} catch (Exception e) {
+				e1 = e;
 			} finally {
 				pool.shutdown();
 				for (;;) {
 					try {
-						if (pool.awaitTermination(60, TimeUnit.SECONDS))
+						if (pool.awaitTermination(60, TimeUnit.SECONDS)) {
 							break;
+						}
 					} catch (InterruptedException e) {
-						throw new IOException(
-								JGitText.get().packingCancelledDuringObjectsWriting);
+						if (e1 != null) {
+							e.addSuppressed(e1);
+						}
+						throw new IOException(JGitText
+								.get().packingCancelledDuringObjectsWriting, e);
 					}
 				}
 			}
@@ -1635,7 +1624,8 @@ public class PackWriter implements AutoCloseable {
 				// Cross our fingers and just break out anyway.
 				//
 				throw new IOException(
-						JGitText.get().packingCancelledDuringObjectsWriting);
+						JGitText.get().packingCancelledDuringObjectsWriting,
+						ie);
 			}
 		}
 
@@ -1676,7 +1666,7 @@ public class PackWriter implements AutoCloseable {
 			for (Future<?> f : futures)
 				f.cancel(true);
 			throw new IOException(
-					JGitText.get().packingCancelledDuringObjectsWriting);
+					JGitText.get().packingCancelledDuringObjectsWriting, ie);
 		}
 	}
 
@@ -1749,23 +1739,23 @@ public class PackWriter implements AutoCloseable {
 							NullProgressMonitor.INSTANCE,
 							Collections.singleton(otp));
 					continue;
-				} else {
-					// Object writing already started, we cannot recover.
-					//
-					CorruptObjectException coe;
-					coe = new CorruptObjectException(otp, ""); //$NON-NLS-1$
-					coe.initCause(gone);
-					throw coe;
 				}
+				// Object writing already started, we cannot recover.
+				//
+				CorruptObjectException coe;
+				coe = new CorruptObjectException(otp, ""); //$NON-NLS-1$
+				coe.initCause(gone);
+				throw coe;
 			}
 		}
 
 		// If we reached here, reuse wasn't possible.
 		//
-		if (otp.isDeltaRepresentation())
+		if (otp.isDeltaRepresentation()) {
 			writeDeltaObjectDeflate(out, otp);
-		else
+		} else {
 			writeWholeObjectDeflate(out, otp);
+		}
 		out.endObject();
 		otp.setCRC((int) crc32.getValue());
 	}
@@ -2213,10 +2203,12 @@ public class PackWriter implements AutoCloseable {
 
 		// Check if this object needs to be rejected, doing the cheaper
 		// checks first.
-		boolean reject = filterSpec.getBlobLimit() >= 0 &&
-			type == OBJ_BLOB &&
-			!want.contains(src) &&
-			reader.getObjectSize(src, OBJ_BLOB) > filterSpec.getBlobLimit();
+		boolean reject =
+			(!filterSpec.allowsType(type) && !want.contains(src)) ||
+			(filterSpec.getBlobLimit() >= 0 &&
+				type == OBJ_BLOB &&
+				!want.contains(src) &&
+				reader.getObjectSize(src, OBJ_BLOB) > filterSpec.getBlobLimit());
 		if (!reject) {
 			addObject(src, type, pathHashCode);
 		}
@@ -2344,14 +2336,14 @@ public class PackWriter implements AutoCloseable {
 		PackWriterBitmapPreparer bitmapPreparer = new PackWriterBitmapPreparer(
 				reader, writeBitmaps, pm, stats.interestingObjects, config);
 
-		Collection<PackWriterBitmapPreparer.BitmapCommit> selectedCommits = bitmapPreparer
+		Collection<BitmapCommit> selectedCommits = bitmapPreparer
 				.selectCommits(numCommits, excludeFromBitmapSelection);
 
 		beginPhase(PackingPhase.BUILDING_BITMAPS, pm, selectedCommits.size());
 
 		BitmapWalker walker = bitmapPreparer.newBitmapWalker();
 		AnyObjectId last = null;
-		for (PackWriterBitmapPreparer.BitmapCommit cmit : selectedCommits) {
+		for (BitmapCommit cmit : selectedCommits) {
 			if (!cmit.isReuseWalker()) {
 				walker = bitmapPreparer.newBitmapWalker();
 			}
@@ -2362,8 +2354,14 @@ public class PackWriter implements AutoCloseable {
 				throw new IllegalStateException(MessageFormat.format(
 						JGitText.get().bitmapMissingObject, cmit.name(),
 						last.name()));
-			last = cmit;
-			writeBitmaps.addBitmap(cmit, bitmap.build(), cmit.getFlags());
+			last = BitmapCommit.copyFrom(cmit).build();
+			writeBitmaps.processBitmapForWrite(cmit, bitmap.build(),
+					cmit.getFlags());
+
+			// The bitmap walker should stop when the walk hits the previous
+			// commit, which saves time.
+			walker.setPrevCommit(last);
+			walker.setPrevBitmap(bitmap);
 
 			pm.update(1);
 		}
@@ -2430,7 +2428,7 @@ public class PackWriter implements AutoCloseable {
 	}
 
 	/** Possible states that a PackWriter can be in. */
-	public static enum PackingPhase {
+	public enum PackingPhase {
 		/** Counting objects phase. */
 		COUNTING,
 

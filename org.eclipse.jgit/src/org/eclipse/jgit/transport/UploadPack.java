@@ -1,44 +1,11 @@
 /*
- * Copyright (C) 2008-2010, Google Inc.
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2008, 2020 Google Inc. and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.transport;
@@ -66,6 +33,7 @@ import static org.eclipse.jgit.transport.GitProtocolConstants.OPTION_SIDEBAND_AL
 import static org.eclipse.jgit.transport.GitProtocolConstants.OPTION_SIDE_BAND;
 import static org.eclipse.jgit.transport.GitProtocolConstants.OPTION_SIDE_BAND_64K;
 import static org.eclipse.jgit.transport.GitProtocolConstants.OPTION_THIN_PACK;
+import static org.eclipse.jgit.transport.GitProtocolConstants.VERSION_2_REQUEST;
 import static org.eclipse.jgit.util.RefMap.toRefMap;
 
 import java.io.ByteArrayOutputStream;
@@ -75,6 +43,8 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.text.MessageFormat;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -85,7 +55,9 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.eclipse.jgit.annotations.NonNull;
 import org.eclipse.jgit.annotations.Nullable;
@@ -97,8 +69,6 @@ import org.eclipse.jgit.internal.JGitText;
 import org.eclipse.jgit.internal.storage.pack.CachedPackUriProvider;
 import org.eclipse.jgit.internal.storage.pack.PackWriter;
 import org.eclipse.jgit.internal.transport.parser.FirstWant;
-import org.eclipse.jgit.lib.BitmapIndex;
-import org.eclipse.jgit.lib.BitmapIndex.BitmapBuilder;
 import org.eclipse.jgit.lib.Constants;
 import org.eclipse.jgit.lib.NullProgressMonitor;
 import org.eclipse.jgit.lib.ObjectId;
@@ -108,15 +78,14 @@ import org.eclipse.jgit.lib.Ref;
 import org.eclipse.jgit.lib.RefDatabase;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.AsyncRevObjectQueue;
-import org.eclipse.jgit.revwalk.BitmapWalker;
 import org.eclipse.jgit.revwalk.DepthWalk;
+import org.eclipse.jgit.revwalk.ObjectReachabilityChecker;
 import org.eclipse.jgit.revwalk.ObjectWalk;
 import org.eclipse.jgit.revwalk.ReachabilityChecker;
 import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.revwalk.RevFlag;
 import org.eclipse.jgit.revwalk.RevFlagSet;
 import org.eclipse.jgit.revwalk.RevObject;
-import org.eclipse.jgit.revwalk.RevSort;
 import org.eclipse.jgit.revwalk.RevTag;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.revwalk.filter.CommitTimeRevFilter;
@@ -135,7 +104,7 @@ import org.eclipse.jgit.util.io.TimeoutOutputStream;
  */
 public class UploadPack {
 	/** Policy the server uses to validate client requests */
-	public static enum RequestPolicy {
+	public enum RequestPolicy {
 		/** Client may only ask for objects the server advertised a reference for. */
 		ADVERTISED,
 
@@ -329,7 +298,7 @@ public class UploadPack {
 
 	private boolean sentReady;
 
-	/** Objects we sent in our advertisement list, clients can ask for these. */
+	/** Objects we sent in our advertisement list. */
 	private Set<ObjectId> advertised;
 
 	/** Marked on objects the client has asked us to give them. */
@@ -412,8 +381,10 @@ public class UploadPack {
 	/**
 	 * Get refs which were advertised to the client.
 	 *
-	 * @return all refs which were advertised to the client, or null if
-	 *         {@link #setAdvertisedRefs(Map)} has not been called yet.
+	 * @return all refs which were advertised to the client. Only valid during
+	 *         the negotiation phase. Will return {@code null} if
+	 *         {@link #setAdvertisedRefs(Map)} has not been called yet or if
+	 *         {@code #sendPack()} has been called.
 	 */
 	public final Map<String, Ref> getAdvertisedRefs() {
 		return refs;
@@ -739,7 +710,7 @@ public class UploadPack {
 	 * @since 5.0
 	 */
 	public void setExtraParameters(Collection<String> params) {
-		this.clientRequestedV2 = params.contains("version=2"); //$NON-NLS-1$
+		this.clientRequestedV2 = params.contains(VERSION_2_REQUEST);
 	}
 
 	/**
@@ -752,7 +723,8 @@ public class UploadPack {
 	}
 
 	private boolean useProtocolV2() {
-		return ProtocolVersion.V2.equals(transferConfig.protocolVersion)
+		return (transferConfig.protocolVersion == null
+			|| ProtocolVersion.V2.equals(transferConfig.protocolVersion))
 				&& clientRequestedV2;
 	}
 
@@ -830,6 +802,7 @@ public class UploadPack {
 	 * @throws IOException
 	 *             thrown if the server or the client I/O fails, or there's an
 	 *             internal server error.
+	 * @since 5.6
 	 */
 	public void uploadWithExceptionPropagation(InputStream input,
 			OutputStream output, @Nullable OutputStream messages)
@@ -1039,7 +1012,7 @@ public class UploadPack {
 			else
 				advertised = refIdSet(getAdvertisedOrDefaultRefs().values());
 
-			long negotiateStart = System.currentTimeMillis();
+			Instant negotiateStart = Instant.now();
 			accumulator.advertised = advertised.size();
 
 			ProtocolV0Parser parser = new ProtocolV0Parser(transferConfig);
@@ -1081,8 +1054,8 @@ public class UploadPack {
 			if (!req.getClientShallowCommits().isEmpty())
 				walk.assumeShallow(req.getClientShallowCommits());
 			sendPack = negotiate(req, accumulator, pckOut);
-			accumulator.timeNegotiating += System.currentTimeMillis()
-					- negotiateStart;
+			accumulator.timeNegotiating = Duration
+					.between(negotiateStart, Instant.now()).toMillis();
 
 			if (sendPack && !biDirectionalPipe) {
 				// Ensure the request was fully consumed. Any remaining input must
@@ -1168,6 +1141,9 @@ public class UploadPack {
 			advertised = refIdSet(getAdvertisedOrDefaultRefs().values());
 		}
 
+		PackStatistics.Accumulator accumulator = new PackStatistics.Accumulator();
+		Instant negotiateStart = Instant.now();
+
 		ProtocolV2Parser parser = new ProtocolV2Parser(transferConfig);
 		FetchV2Request req = parser.parseFetchRequest(pckIn);
 		currentRequest = req;
@@ -1217,16 +1193,19 @@ public class UploadPack {
 
 		if (req.wasDoneReceived()) {
 			processHaveLines(req.getPeerHas(), ObjectId.zeroId(),
-					new PacketLineOut(NullOutputStream.INSTANCE));
+					new PacketLineOut(NullOutputStream.INSTANCE, false),
+					accumulator);
 		} else {
-			pckOut.writeString("acknowledgments\n"); //$NON-NLS-1$
+			pckOut.writeString(
+					GitProtocolConstants.SECTION_ACKNOWLEDGMENTS + '\n');
 			for (ObjectId id : req.getPeerHas()) {
 				if (walk.getObjectReader().has(id)) {
 					pckOut.writeString("ACK " + id.getName() + "\n"); //$NON-NLS-1$ //$NON-NLS-2$
 				}
 			}
 			processHaveLines(req.getPeerHas(), ObjectId.zeroId(),
-					new PacketLineOut(NullOutputStream.INSTANCE));
+					new PacketLineOut(NullOutputStream.INSTANCE, false),
+					accumulator);
 			if (okToGiveUp()) {
 				pckOut.writeString("ready\n"); //$NON-NLS-1$
 			} else if (commonBase.isEmpty()) {
@@ -1267,9 +1246,14 @@ public class UploadPack {
 			if (!pckOut.isUsingSideband()) {
 				// sendPack will write "packfile\n" for us if sideband-all is used.
 				// But sideband-all is not used, so we have to write it ourselves.
-				pckOut.writeString("packfile\n"); //$NON-NLS-1$
+				pckOut.writeString(
+						GitProtocolConstants.SECTION_PACKFILE + '\n');
 			}
-			sendPack(new PackStatistics.Accumulator(),
+
+			accumulator.timeNegotiating = Duration
+					.between(negotiateStart, Instant.now()).toMillis();
+
+			sendPack(accumulator,
 					req,
 					req.getClientCapabilities().contains(OPTION_INCLUDE_TAG)
 						? db.getRefDatabase().getRefsByPrefix(R_TAGS)
@@ -1324,7 +1308,7 @@ public class UploadPack {
 		caps.add(COMMAND_FETCH + '='
 				+ (transferConfig.isAllowFilter() ? OPTION_FILTER + ' ' : "")
 				+ (advertiseRefInWant ? CAPABILITY_REF_IN_WANT + ' ' : "")
-				+ (transferConfig.isAllowSidebandAll()
+				+ (transferConfig.isAdvertiseSidebandAll()
 						? OPTION_SIDEBAND_ALL + ' '
 						: "")
 				+ (cachedPackUriProvider != null ? "packfile-uris " : "")
@@ -1672,7 +1656,7 @@ public class UploadPack {
 			}
 
 			if (PacketLineIn.isEnd(line)) {
-				last = processHaveLines(peerHas, last, pckOut);
+				last = processHaveLines(peerHas, last, pckOut, accumulator);
 				if (commonBase.isEmpty() || multiAck != MultiAck.OFF)
 					pckOut.writeString("NAK\n"); //$NON-NLS-1$
 				if (noDone && sentReady) {
@@ -1687,7 +1671,7 @@ public class UploadPack {
 				peerHas.add(ObjectId.fromString(line.substring(5)));
 				accumulator.haves++;
 			} else if (line.equals("done")) { //$NON-NLS-1$
-				last = processHaveLines(peerHas, last, pckOut);
+				last = processHaveLines(peerHas, last, pckOut, accumulator);
 
 				if (commonBase.isEmpty())
 					pckOut.writeString("NAK\n"); //$NON-NLS-1$
@@ -1703,11 +1687,12 @@ public class UploadPack {
 		}
 	}
 
-	private ObjectId processHaveLines(List<ObjectId> peerHas, ObjectId last, PacketLineOut out)
+	private ObjectId processHaveLines(List<ObjectId> peerHas, ObjectId last,
+			PacketLineOut out, PackStatistics.Accumulator accumulator)
 			throws IOException {
 		preUploadHook.onBeginNegotiateRound(this, wantIds, peerHas.size());
 		if (wantAll.isEmpty() && !wantIds.isEmpty())
-			parseWants();
+			parseWants(accumulator);
 		if (peerHas.isEmpty())
 			return last;
 
@@ -1804,7 +1789,7 @@ public class UploadPack {
 		return last;
 	}
 
-	private void parseWants() throws IOException {
+	private void parseWants(PackStatistics.Accumulator accumulator) throws IOException {
 		List<ObjectId> notAdvertisedWants = null;
 		for (ObjectId obj : wantIds) {
 			if (!advertised.contains(obj)) {
@@ -1813,8 +1798,17 @@ public class UploadPack {
 				notAdvertisedWants.add(obj);
 			}
 		}
-		if (notAdvertisedWants != null)
+		if (notAdvertisedWants != null) {
+			accumulator.notAdvertisedWants = notAdvertisedWants.size();
+
+			Instant startReachabilityChecking = Instant.now();
+
 			requestValidator.checkWants(this, notAdvertisedWants);
+
+			accumulator.reachabilityCheckDuration = Duration
+					.between(startReachabilityChecking, Instant.now())
+					.toMillis();
+		}
 
 		AsyncRevObjectQueue q = walk.parseAny(wantIds, true);
 		try {
@@ -1872,8 +1866,7 @@ public class UploadPack {
 		@Override
 		public void checkWants(UploadPack up, List<ObjectId> wants)
 				throws PackProtocolException, IOException {
-			checkNotAdvertisedWants(up, wants,
-					refIdSet(up.getAdvertisedRefs().values()));
+			checkNotAdvertisedWants(up, wants, up.getAdvertisedRefs().values());
 		}
 	}
 
@@ -1910,7 +1903,7 @@ public class UploadPack {
 		public void checkWants(UploadPack up, List<ObjectId> wants)
 				throws PackProtocolException, IOException {
 			checkNotAdvertisedWants(up, wants,
-					refIdSet(up.getRepository().getRefDatabase().getRefs()));
+					up.getRepository().getRefDatabase().getRefs());
 		}
 	}
 
@@ -1927,53 +1920,12 @@ public class UploadPack {
 		}
 	}
 
-	private static void checkNotAdvertisedWantsUsingBitmap(ObjectReader reader,
-			BitmapIndex bitmapIndex, List<ObjectId> notAdvertisedWants,
-			Set<ObjectId> reachableFrom) throws IOException {
-		BitmapWalker bitmapWalker = new BitmapWalker(new ObjectWalk(reader), bitmapIndex, null);
-		BitmapBuilder reachables = bitmapWalker.findObjects(reachableFrom, null, false);
-		for (ObjectId oid : notAdvertisedWants) {
-			if (!reachables.contains(oid)) {
-				throw new WantNotValidException(oid);
-			}
-		}
-	}
-
-	private static void checkReachabilityByWalkingObjects(ObjectWalk walk,
-			List<RevObject> wants, Set<ObjectId> reachableFrom) throws IOException {
-
-		walk.sort(RevSort.TOPO);
-		for (RevObject want : wants) {
-			walk.markStart(want);
-		}
-		for (ObjectId have : reachableFrom) {
-			RevObject o = walk.parseAny(have);
-			walk.markUninteresting(o);
-
-			RevObject peeled = walk.peel(o);
-			if (peeled instanceof RevCommit) {
-				// By default, for performance reasons, ObjectWalk does not mark a
-				// tree as uninteresting when we mark a commit. Mark it ourselves so
-				// that we can determine reachability exactly.
-				walk.markUninteresting(((RevCommit) peeled).getTree());
-			}
-		}
-
-		RevCommit commit = walk.next();
-		if (commit != null) {
-			throw new WantNotValidException(commit);
-		}
-		RevObject object = walk.nextObject();
-		if (object != null) {
-			throw new WantNotValidException(object);
-		}
-	}
-
 	private static void checkNotAdvertisedWants(UploadPack up,
-			List<ObjectId> notAdvertisedWants, Set<ObjectId> reachableFrom)
+			List<ObjectId> notAdvertisedWants, Collection<Ref> visibleRefs)
 			throws IOException {
 
 		ObjectReader reader = up.getRevWalk().getObjectReader();
+
 		try (RevWalk walk = new RevWalk(reader)) {
 			walk.setRetainBody(false);
 			// Missing "wants" throw exception here
@@ -1988,50 +1940,120 @@ public class UploadPack {
 			boolean repoHasBitmaps = reader.getBitmapIndex() != null;
 
 			if (!allWantsAreCommits) {
-				if (!repoHasBitmaps) {
-					if (up.transferConfig.isAllowFilter()) {
-						// Use allowFilter as an indication that the server
-						// operator is willing to pay the cost of these
-						// reachability checks.
-						try (ObjectWalk objWalk = walk.toObjectWalkWithSameObjects()) {
-							checkReachabilityByWalkingObjects(objWalk,
-									wantsAsObjs, reachableFrom);
-						}
-						return;
-					}
-
-					// If unadvertized non-commits are requested, use
-					// bitmaps. If there are no bitmaps, instead of
-					// incurring the expense of a manual walk, reject
-					// the request.
+				if (!repoHasBitmaps && !up.transferConfig.isAllowFilter()) {
+					// Checking unadvertised non-commits without bitmaps
+					// requires an expensive manual walk. Use allowFilter as an
+					// indication that the server operator is willing to pay
+					// this cost. Reject the request otherwise.
 					RevObject nonCommit = wantsAsObjs
 							.stream()
 							.filter(obj -> !(obj instanceof RevCommit))
 							.limit(1)
 							.collect(Collectors.toList()).get(0);
 					throw new WantNotValidException(nonCommit);
-
 				}
-				checkNotAdvertisedWantsUsingBitmap(reader,
-						reader.getBitmapIndex(), notAdvertisedWants,
-						reachableFrom);
+
+				try (ObjectWalk objWalk = walk.toObjectWalkWithSameObjects()) {
+					Stream<RevObject> startersAsObjs = importantRefsFirst(visibleRefs)
+							.map(UploadPack::refToObjectId)
+							.map(objId -> objectIdToRevObject(objWalk, objId))
+							.filter(Objects::nonNull); // Ignore missing tips
+
+					ObjectReachabilityChecker reachabilityChecker = reader
+							.createObjectReachabilityChecker(objWalk);
+					Optional<RevObject> unreachable = reachabilityChecker
+							.areAllReachable(wantsAsObjs, startersAsObjs);
+					if (unreachable.isPresent()) {
+						throw new WantNotValidException(unreachable.get());
+					}
+				}
 				return;
 			}
 
 			// All wants are commits, we can use ReachabilityChecker
-			ReachabilityChecker reachabilityChecker = walk
-					.createReachabilityChecker();
+			ReachabilityChecker reachabilityChecker = reader
+					.createReachabilityChecker(walk);
 
-			List<RevCommit> starters = objectIdsToRevCommits(walk,
-					reachableFrom);
+			Stream<RevCommit> reachableCommits = importantRefsFirst(visibleRefs)
+					.map(UploadPack::refToObjectId)
+					.map(objId -> objectIdToRevCommit(walk, objId))
+					.filter(Objects::nonNull); // Ignore missing tips
+
 			Optional<RevCommit> unreachable = reachabilityChecker
-					.areAllReachable(wantsAsCommits, starters);
+					.areAllReachable(wantsAsCommits, reachableCommits);
 			if (unreachable.isPresent()) {
 				throw new WantNotValidException(unreachable.get());
 			}
 
 		} catch (MissingObjectException notFound) {
 			throw new WantNotValidException(notFound.getObjectId(), notFound);
+		}
+	}
+
+	static Stream<Ref> importantRefsFirst(
+			Collection<Ref> visibleRefs) {
+		Predicate<Ref> startsWithRefsHeads = ref -> ref.getName()
+				.startsWith(Constants.R_HEADS);
+		Predicate<Ref> startsWithRefsTags = ref -> ref.getName()
+				.startsWith(Constants.R_TAGS);
+		Predicate<Ref> allOther = ref -> !startsWithRefsHeads.test(ref)
+				&& !startsWithRefsTags.test(ref);
+
+		return Stream.concat(
+				visibleRefs.stream().filter(startsWithRefsHeads),
+				Stream.concat(
+						visibleRefs.stream().filter(startsWithRefsTags),
+						visibleRefs.stream().filter(allOther)));
+	}
+
+	private static ObjectId refToObjectId(Ref ref) {
+		return ref.getObjectId() != null ? ref.getObjectId()
+				: ref.getPeeledObjectId();
+	}
+
+	/**
+	 * Translate an object id to a RevCommit.
+	 *
+	 * @param walk
+	 *            walk on the relevant object storae
+	 * @param objectId
+	 *            Object Id
+	 * @return RevCommit instance or null if the object is missing
+	 */
+	@Nullable
+	private static RevCommit objectIdToRevCommit(RevWalk walk,
+			ObjectId objectId) {
+		if (objectId == null) {
+			return null;
+		}
+
+		try {
+			return walk.parseCommit(objectId);
+		} catch (IOException e) {
+			return null;
+		}
+	}
+
+	/**
+	 * Translate an object id to a RevObject.
+	 *
+	 * @param walk
+	 *            walk on the relevant object storage
+	 * @param objectId
+	 *            Object Id
+	 * @return RevObject instance or null if the object is missing
+	 */
+	@Nullable
+	private static RevObject objectIdToRevObject(RevWalk walk,
+			ObjectId objectId) {
+		if (objectId == null) {
+			return null;
+		}
+
+		try {
+			return walk.parseAny(objectId);
+		} catch (IOException e) {
+			return null;
 		}
 	}
 
@@ -2046,23 +2068,6 @@ public class UploadPack {
 		}
 		return result;
 	}
-
-	// Get commits from object ids. If the id is not a commit, ignore it. If the
-	// id doesn't exist, report the missing object in a exception.
-	private static List<RevCommit> objectIdsToRevCommits(RevWalk walk,
-			Iterable<ObjectId> objectIds)
-			throws MissingObjectException, IOException {
-		List<RevCommit> result = new ArrayList<>();
-		for (ObjectId objectId : objectIds) {
-			try {
-				result.add(walk.parseCommit(objectId));
-			} catch (IncorrectObjectTypeException e) {
-				continue;
-			}
-		}
-		return result;
-	}
-
 
 	private void addCommonBase(RevObject o) {
 		if (!o.has(COMMON)) {
@@ -2204,6 +2209,11 @@ public class UploadPack {
 		}
 		msgOut.flush();
 
+		// Advertised objects and refs are not used from here on and can be
+		// cleared.
+		advertised = null;
+		refs = null;
+
 		PackConfig cfg = packConfig;
 		if (cfg == null)
 			cfg = new PackConfig(db);
@@ -2321,7 +2331,8 @@ public class UploadPack {
 					// for us if provided a PackfileUriConfig. In this case, we
 					// are not providing a PackfileUriConfig, so we have to
 					// write this line ourselves.
-					pckOut.writeString("packfile\n"); //$NON-NLS-1$
+					pckOut.writeString(
+							GitProtocolConstants.SECTION_PACKFILE + '\n');
 				}
 			}
 			pw.writePack(pm, NullProgressMonitor.INSTANCE, packOut);
@@ -2377,12 +2388,12 @@ public class UploadPack {
 		}
 
 		@Override
-		public void write(byte b[]) throws IOException {
+		public void write(byte[] b) throws IOException {
 			out.write(b);
 		}
 
 		@Override
-		public void write(byte b[], int off, int len) throws IOException {
+		public void write(byte[] b, int off, int len) throws IOException {
 			out.write(b, off, len);
 		}
 

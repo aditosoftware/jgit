@@ -1,44 +1,11 @@
 /*
- * Copyright (C) 2014, Christian Halstrick <christian.halstrick@sap.com>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2014, Christian Halstrick <christian.halstrick@sap.com> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.lib;
@@ -60,9 +27,11 @@ import org.eclipse.jgit.errors.NoWorkTreeException;
 import org.eclipse.jgit.internal.storage.file.FileRepository;
 import org.eclipse.jgit.junit.JGitTestUtil;
 import org.eclipse.jgit.junit.RepositoryTestCase;
+import org.eclipse.jgit.storage.file.FileBasedConfig;
 import org.eclipse.jgit.submodule.SubmoduleWalk.IgnoreSubmoduleMode;
 import org.eclipse.jgit.treewalk.FileTreeIterator;
 import org.junit.Before;
+import org.junit.Test;
 import org.junit.experimental.theories.DataPoints;
 import org.junit.experimental.theories.Theories;
 import org.junit.experimental.theories.Theory;
@@ -295,4 +264,79 @@ public class IndexDiffSubmoduleTest extends RepositoryTestCase {
 				indexDiff.getAdded().toString());
 	}
 
+	@Test
+	public void testIndexDiffTwoSubmodules() throws Exception {
+		// Create a second submodule
+		try (Repository submodule2 = createWorkRepository()) {
+			JGitTestUtil.writeTrashFile(submodule2, "fileInSubmodule2",
+					"submodule2");
+			Git subGit = Git.wrap(submodule2);
+			subGit.add().addFilepattern("fileInSubmodule2").call();
+			subGit.commit().setMessage("add file to submodule2").call();
+
+			try (Repository sub2 = Git.wrap(db)
+					.submoduleAdd().setPath("modules/submodule2")
+					.setURI(submodule2.getDirectory().toURI().toString())
+					.call()) {
+				writeTrashFile("fileInRoot", "root+");
+				Git rootGit = Git.wrap(db);
+				rootGit.add().addFilepattern("fileInRoot").call();
+				rootGit.commit().setMessage("add submodule2 and root file")
+						.call();
+				// Now change files in both submodules
+				JGitTestUtil.writeTrashFile(submodule_db, "fileInSubmodule",
+						"submodule changed");
+				JGitTestUtil.writeTrashFile(sub2, "fileInSubmodule2",
+						"submodule2 changed");
+				// Set up .gitmodules
+				FileBasedConfig gitmodules = new FileBasedConfig(
+						new File(db.getWorkTree(), Constants.DOT_GIT_MODULES),
+						db.getFS());
+				gitmodules.load();
+				gitmodules.setString(ConfigConstants.CONFIG_SUBMODULE_SECTION,
+						"modules/submodule", ConfigConstants.CONFIG_KEY_IGNORE,
+						"all");
+				gitmodules.setString(ConfigConstants.CONFIG_SUBMODULE_SECTION,
+						"modules/submodule2", ConfigConstants.CONFIG_KEY_IGNORE,
+						"none");
+				gitmodules.save();
+				IndexDiff indexDiff = new IndexDiff(db, Constants.HEAD,
+						new FileTreeIterator(db));
+				assertTrue(indexDiff.diff());
+				String[] modified = indexDiff.getModified()
+						.toArray(new String[0]);
+				Arrays.sort(modified);
+				assertEquals("[.gitmodules, modules/submodule2]",
+						Arrays.toString(modified));
+				// Try again with "dirty"
+				gitmodules.setString(ConfigConstants.CONFIG_SUBMODULE_SECTION,
+						"modules/submodule", ConfigConstants.CONFIG_KEY_IGNORE,
+						"dirty");
+				gitmodules.save();
+				indexDiff = new IndexDiff(db, Constants.HEAD,
+						new FileTreeIterator(db));
+				assertTrue(indexDiff.diff());
+				modified = indexDiff.getModified().toArray(new String[0]);
+				Arrays.sort(modified);
+				assertEquals("[.gitmodules, modules/submodule2]",
+						Arrays.toString(modified));
+				// Test the config override
+				StoredConfig cfg = db.getConfig();
+				cfg.setString(ConfigConstants.CONFIG_SUBMODULE_SECTION,
+						"modules/submodule", ConfigConstants.CONFIG_KEY_IGNORE,
+						"none");
+				cfg.setString(ConfigConstants.CONFIG_SUBMODULE_SECTION,
+						"modules/submodule2", ConfigConstants.CONFIG_KEY_IGNORE,
+						"all");
+				cfg.save();
+				indexDiff = new IndexDiff(db, Constants.HEAD,
+						new FileTreeIterator(db));
+				assertTrue(indexDiff.diff());
+				modified = indexDiff.getModified().toArray(new String[0]);
+				Arrays.sort(modified);
+				assertEquals("[.gitmodules, modules/submodule]",
+						Arrays.toString(modified));
+			}
+		}
+	}
 }

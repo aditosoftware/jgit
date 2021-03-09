@@ -4,46 +4,13 @@
  * Copyright (C) 2008, Marek Zawirski <marek.zawirski@gmail.com>
  * Copyright (C) 2008, Robin Rosenberg <robin.rosenberg@dewire.com>
  * Copyright (C) 2008, Shawn O. Pearce <spearce@spearce.org>
- * Copyright (C) 2010, Mathias Kinzler <mathias.kinzler@sap.com>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2010, Mathias Kinzler <mathias.kinzler@sap.com> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.lib;
@@ -62,6 +29,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -91,7 +59,6 @@ import org.eclipse.jgit.util.SystemReader;
 import org.junit.After;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.ExpectedException;
 import org.junit.rules.TemporaryFolder;
 
 /**
@@ -107,9 +74,6 @@ public class ConfigTest {
 	private static final String REFS_UPSTREAM = "+refs/heads/*:refs/remotes/upstream/*";
 
 	private static final String REFS_BACKUP = "+refs/heads/*:refs/remotes/backup/*";
-
-	@Rule
-	public ExpectedException expectedEx = ExpectedException.none();
 
 	@Rule
 	public TemporaryFolder tmp = new TemporaryFolder();
@@ -341,7 +305,7 @@ public class ConfigTest {
 		assertFalse(c.getBoolean("s", "b", true));
 	}
 
-	static enum TestEnum {
+	enum TestEnum {
 		ONE_TWO;
 	}
 
@@ -754,24 +718,22 @@ public class ConfigTest {
 	}
 
 	@Test
-	public void testIncludeInvalidName() throws ConfigInvalidException {
-		expectedEx.expect(ConfigInvalidException.class);
-		expectedEx.expectMessage(JGitText.get().invalidLineInConfigFile);
-		parse("[include]\nbar\n");
+	public void testIncludeInvalidName() {
+		assertThrows(JGitText.get().invalidLineInConfigFile,
+				ConfigInvalidException.class, () -> parse("[include]\nbar\n"));
 	}
 
 	@Test
-	public void testIncludeNoValue() throws ConfigInvalidException {
-		expectedEx.expect(ConfigInvalidException.class);
-		expectedEx.expectMessage(JGitText.get().invalidLineInConfigFile);
-		parse("[include]\npath\n");
+	public void testIncludeNoValue() {
+		assertThrows(JGitText.get().invalidLineInConfigFile,
+				ConfigInvalidException.class, () -> parse("[include]\npath\n"));
 	}
 
 	@Test
-	public void testIncludeEmptyValue() throws ConfigInvalidException {
-		expectedEx.expect(ConfigInvalidException.class);
-		expectedEx.expectMessage(JGitText.get().invalidLineInConfigFile);
-		parse("[include]\npath=\n");
+	public void testIncludeEmptyValue() {
+		assertThrows(JGitText.get().invalidLineInConfigFile,
+				ConfigInvalidException.class,
+				() -> parse("[include]\npath=\n"));
 	}
 
 	@Test
@@ -1302,25 +1264,24 @@ public class ConfigTest {
 	}
 
 	@Test
-	public void testTimeUnitInvalid() throws ConfigInvalidException {
-		expectedEx.expect(IllegalArgumentException.class);
-		expectedEx
-				.expectMessage("Invalid time unit value: a.a=1 monttthhh");
-		parseTime("1 monttthhh", DAYS);
+	public void testTimeUnitInvalid() {
+		assertThrows("Invalid time unit value: a.a=1 monttthhh",
+				IllegalArgumentException.class,
+				() -> parseTime("1 monttthhh", DAYS));
 	}
 
 	@Test
 	public void testTimeUnitInvalidWithSection() throws ConfigInvalidException {
 		Config c = parse("[a \"b\"]\na=1 monttthhh\n");
-		expectedEx.expect(IllegalArgumentException.class);
-		expectedEx.expectMessage("Invalid time unit value: a.b.a=1 monttthhh");
-		c.getTimeUnit("a", "b", "a", 0, DAYS);
+		assertThrows("Invalid time unit value: a.b.a=1 monttthhh",
+				IllegalArgumentException.class,
+				() -> c.getTimeUnit("a", "b", "a", 0, DAYS));
 	}
 
 	@Test
-	public void testTimeUnitNegative() throws ConfigInvalidException {
-		expectedEx.expect(IllegalArgumentException.class);
-		parseTime("-1", MILLISECONDS);
+	public void testTimeUnitNegative() {
+		assertThrows(IllegalArgumentException.class,
+				() -> parseTime("-1", MILLISECONDS));
 	}
 
 	@Test
@@ -1463,10 +1424,10 @@ public class ConfigTest {
 	}
 
 	@Test
-	public void testInvalidGroupHeader() throws ConfigInvalidException {
-		expectedEx.expect(ConfigInvalidException.class);
-		expectedEx.expectMessage(JGitText.get().badGroupHeader);
-		parse("[foo \"bar\" ]\nfoo=bar\n");
+	public void testInvalidGroupHeader() {
+		assertThrows(JGitText.get().badGroupHeader,
+				ConfigInvalidException.class,
+				() -> parse("[foo \"bar\" ]\nfoo=bar\n"));
 	}
 
 	@Test
@@ -1480,17 +1441,15 @@ public class ConfigTest {
 	}
 
 	@Test
-	public void testCrCharContinuation() throws ConfigInvalidException {
-		expectedEx.expect(ConfigInvalidException.class);
-		expectedEx.expectMessage("Bad escape: \\u000d");
-		parseEscapedValue("tr\\\rue");
+	public void testCrCharContinuation() {
+		assertThrows("Bad escape: \\u000d", ConfigInvalidException.class,
+				() -> parseEscapedValue("tr\\\rue"));
 	}
 
 	@Test
-	public void testCrEOFContinuation() throws ConfigInvalidException {
-		expectedEx.expect(ConfigInvalidException.class);
-		expectedEx.expectMessage("Bad escape: \\u000d");
-		parseEscapedValue("tr\\\r");
+	public void testCrEOFContinuation() {
+		assertThrows("Bad escape: \\u000d", ConfigInvalidException.class,
+				() -> parseEscapedValue("tr\\\r"));
 	}
 
 	@Test

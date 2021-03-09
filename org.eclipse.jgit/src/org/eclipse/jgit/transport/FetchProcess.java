@@ -1,45 +1,12 @@
 /*
  * Copyright (C) 2008, Robin Rosenberg <robin.rosenberg@dewire.com>
- * Copyright (C) 2008, Shawn O. Pearce <spearce@spearce.org>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2008, 2020 Shawn O. Pearce <spearce@spearce.org> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 package org.eclipse.jgit.transport;
@@ -81,6 +48,7 @@ import org.eclipse.jgit.lib.Ref;
 import org.eclipse.jgit.lib.RefDatabase;
 import org.eclipse.jgit.revwalk.ObjectWalk;
 import org.eclipse.jgit.revwalk.RevWalk;
+import org.eclipse.jgit.util.StringUtils;
 
 class FetchProcess {
 	/** Transport we will fetch over. */
@@ -112,7 +80,8 @@ class FetchProcess {
 		toFetch = f;
 	}
 
-	void execute(ProgressMonitor monitor, FetchResult result)
+	void execute(ProgressMonitor monitor, FetchResult result,
+			String initialBranch)
 			throws NotSupportedException, TransportException {
 		askFor.clear();
 		localUpdates.clear();
@@ -120,24 +89,64 @@ class FetchProcess {
 		packLocks.clear();
 		localRefs = null;
 
+		Throwable e1 = null;
 		try {
-			executeImp(monitor, result);
+			executeImp(monitor, result, initialBranch);
+		} catch (NotSupportedException | TransportException err) {
+			e1 = err;
+			throw err;
 		} finally {
 			try {
-			for (PackLock lock : packLocks)
-				lock.unlock();
+				for (PackLock lock : packLocks) {
+					lock.unlock();
+				}
 			} catch (IOException e) {
+				if (e1 != null) {
+					e.addSuppressed(e1);
+				}
 				throw new TransportException(e.getMessage(), e);
 			}
 		}
 	}
 
+	private boolean isInitialBranchMissing(Map<String, Ref> refsMap,
+			String initialBranch) {
+		if (StringUtils.isEmptyOrNull(initialBranch) || refsMap.isEmpty()) {
+			return false;
+		}
+		if (refsMap.containsKey(initialBranch)
+				|| refsMap.containsKey(Constants.R_HEADS + initialBranch)
+				|| refsMap.containsKey(Constants.R_TAGS + initialBranch)) {
+			return false;
+		}
+		return true;
+	}
+
 	private void executeImp(final ProgressMonitor monitor,
-			final FetchResult result) throws NotSupportedException,
-			TransportException {
-		conn = transport.openFetch();
+			final FetchResult result, String initialBranch)
+			throws NotSupportedException, TransportException {
+		final TagOpt tagopt = transport.getTagOpt();
+		String getTags = (tagopt == TagOpt.NO_TAGS) ? null : Constants.R_TAGS;
+		String getHead = null;
 		try {
-			result.setAdvertisedRefs(transport.getURI(), conn.getRefsMap());
+			// If we don't have a HEAD yet, we're cloning and need to get the
+			// upstream HEAD, too.
+			Ref head = transport.local.exactRef(Constants.HEAD);
+			ObjectId id = head != null ? head.getObjectId() : null;
+			if (id == null || id.equals(ObjectId.zeroId())) {
+				getHead = Constants.HEAD;
+			}
+		} catch (IOException e) {
+			// Ignore
+		}
+		conn = transport.openFetch(toFetch, getTags, getHead);
+		try {
+			Map<String, Ref> refsMap = conn.getRefsMap();
+			if (isInitialBranchMissing(refsMap, initialBranch)) {
+				throw new TransportException(MessageFormat.format(
+						JGitText.get().remoteBranchNotFound, initialBranch));
+			}
+			result.setAdvertisedRefs(transport.getURI(), refsMap);
 			result.peerUserAgent = conn.getPeerUserAgent();
 			final Set<Ref> matched = new HashSet<>();
 			for (RefSpec spec : toFetch) {
@@ -152,7 +161,6 @@ class FetchProcess {
 			}
 
 			Collection<Ref> additionalTags = Collections.<Ref> emptyList();
-			final TagOpt tagopt = transport.getTagOpt();
 			if (tagopt == TagOpt.AUTO_FOLLOW)
 				additionalTags = expandAutoFollowTags();
 			else if (tagopt == TagOpt.FETCH_TAGS)
@@ -286,7 +294,17 @@ class FetchProcess {
 		if (conn != null)
 			return;
 
-		conn = transport.openFetch();
+		// Build prefixes
+		Set<String> prefixes = new HashSet<>();
+		for (Ref toGet : askFor.values()) {
+			String src = toGet.getName();
+			prefixes.add(src);
+			prefixes.add(Constants.R_REFS + src);
+			prefixes.add(Constants.R_HEADS + src);
+			prefixes.add(Constants.R_TAGS + src);
+		}
+		conn = transport.openFetch(Collections.emptyList(),
+				prefixes.toArray(new String[0]));
 
 		// Since we opened a new connection we cannot be certain
 		// that the system we connected to has the same exact set

@@ -1,50 +1,22 @@
 /*
- * Copyright (C) 2018, Thomas Wolf <thomas.wolf@paranor.ch>
- * and other copyright owners as documented in the project's IP log.
+ * Copyright (C) 2018, 2020 Thomas Wolf <thomas.wolf@paranor.ch> and others
  *
- * This program and the accompanying materials are made available
- * under the terms of the Eclipse Distribution License v1.0 which
- * accompanies this distribution, is reproduced below, and is
- * available at http://www.eclipse.org/org/documents/edl-v10.php
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
  *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or
- * without modification, are permitted provided that the following
- * conditions are met:
- *
- * - Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following
- *   disclaimer in the documentation and/or other materials provided
- *   with the distribution.
- *
- * - Neither the name of the Eclipse Foundation, Inc. nor the
- *   names of its contributors may be used to endorse or promote
- *   products derived from this software without specific prior
- *   written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 package org.eclipse.jgit.junit.ssh;
+
+import static org.apache.sshd.core.CoreModuleProperties.SERVER_EXTRA_IDENTIFICATION_LINES;
+import static org.apache.sshd.core.CoreModuleProperties.SERVER_EXTRA_IDENT_LINES_SEPARATOR;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
@@ -52,37 +24,42 @@ import java.security.KeyPair;
 import java.security.PublicKey;
 import java.text.MessageFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.sshd.common.NamedFactory;
 import org.apache.sshd.common.NamedResource;
-import org.apache.sshd.common.PropertyResolverUtils;
+import org.apache.sshd.common.PropertyResolver;
 import org.apache.sshd.common.SshConstants;
 import org.apache.sshd.common.config.keys.AuthorizedKeyEntry;
 import org.apache.sshd.common.config.keys.KeyUtils;
 import org.apache.sshd.common.config.keys.PublicKeyEntryResolver;
 import org.apache.sshd.common.file.virtualfs.VirtualFileSystemFactory;
-import org.apache.sshd.common.session.Session;
+import org.apache.sshd.common.signature.BuiltinSignatures;
+import org.apache.sshd.common.signature.Signature;
 import org.apache.sshd.common.util.buffer.Buffer;
 import org.apache.sshd.common.util.security.SecurityUtils;
 import org.apache.sshd.common.util.threads.CloseableExecutorService;
 import org.apache.sshd.common.util.threads.ThreadUtils;
 import org.apache.sshd.server.ServerAuthenticationManager;
-import org.apache.sshd.server.ServerFactoryManager;
+import org.apache.sshd.server.ServerBuilder;
 import org.apache.sshd.server.SshServer;
 import org.apache.sshd.server.auth.UserAuth;
+import org.apache.sshd.server.auth.UserAuthFactory;
 import org.apache.sshd.server.auth.gss.GSSAuthenticator;
 import org.apache.sshd.server.auth.gss.UserAuthGSS;
 import org.apache.sshd.server.auth.gss.UserAuthGSSFactory;
 import org.apache.sshd.server.auth.keyboard.DefaultKeyboardInteractiveAuthenticator;
 import org.apache.sshd.server.command.AbstractCommandSupport;
-import org.apache.sshd.server.command.Command;
 import org.apache.sshd.server.session.ServerSession;
 import org.apache.sshd.server.shell.UnknownCommand;
-import org.apache.sshd.server.subsystem.sftp.SftpSubsystemFactory;
+import org.apache.sshd.server.subsystem.SubsystemFactory;
+import org.apache.sshd.sftp.server.SftpSubsystemFactory;
 import org.eclipse.jgit.annotations.NonNull;
+import org.eclipse.jgit.annotations.Nullable;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.transport.ReceivePack;
 import org.eclipse.jgit.transport.RemoteConfig;
@@ -98,6 +75,16 @@ import org.eclipse.jgit.transport.UploadPack;
  * @since 5.2
  */
 public class SshTestGitServer {
+
+	/**
+	 * Simple echo test command. Replies with the command string as passed. If
+	 * of the form "echo [int] anything", takes the integer value as a delay in
+	 * seconds before replying, which may be useful to test various
+	 * timeout-related things.
+	 *
+	 * @since 5.9
+	 */
+	public static final String ECHO_COMMAND = "echo";
 
 	@NonNull
 	protected final String testUser;
@@ -123,8 +110,7 @@ public class SshTestGitServer {
 	 * @param testUser
 	 *            user name of the test user
 	 * @param testKey
-	 *            <em>private</em> key file of the test user; the server will
-	 *            only user the public key from it
+	 *            public key file of the test user
 	 * @param repository
 	 *            to serve
 	 * @param hostKey
@@ -135,41 +121,127 @@ public class SshTestGitServer {
 	public SshTestGitServer(@NonNull String testUser, @NonNull Path testKey,
 			@NonNull Repository repository, @NonNull byte[] hostKey)
 			throws IOException, GeneralSecurityException {
+		this(testUser, readPublicKey(testKey), repository,
+				readKeyPair(hostKey));
+	}
+
+	/**
+	 * Creates a ssh git <em>test</em> server. It serves one single repository,
+	 * and accepts public-key authentication for exactly one test user.
+	 *
+	 * @param testUser
+	 *            user name of the test user
+	 * @param testKey
+	 *            public key file of the test user
+	 * @param repository
+	 *            to serve
+	 * @param hostKey
+	 *            the unencrypted private key to use as host key
+	 * @throws IOException
+	 * @throws GeneralSecurityException
+	 * @since 5.9
+	 */
+	public SshTestGitServer(@NonNull String testUser, @NonNull Path testKey,
+			@NonNull Repository repository, @NonNull KeyPair hostKey)
+			throws IOException, GeneralSecurityException {
+		this(testUser, readPublicKey(testKey), repository, hostKey);
+	}
+
+	/**
+	 * Creates a ssh git <em>test</em> server. It serves one single repository,
+	 * and accepts public-key authentication for exactly one test user.
+	 *
+	 * @param testUser
+	 *            user name of the test user
+	 * @param testKey
+	 *            the {@link PublicKey} of the test user
+	 * @param repository
+	 *            to serve
+	 * @param hostKey
+	 *            the {@link KeyPair} to use as host key
+	 * @since 5.9
+	 */
+	public SshTestGitServer(@NonNull String testUser,
+			@NonNull PublicKey testKey, @NonNull Repository repository,
+			@NonNull KeyPair hostKey) {
 		this.testUser = testUser;
 		setTestUserPublicKey(testKey);
 		this.repository = repository;
-		server = SshServer.setUpDefaultServer();
-		// Set host key
-		try (ByteArrayInputStream in = new ByteArrayInputStream(hostKey)) {
-			SecurityUtils.loadKeyPairIdentities(null, null, in, null)
-					.forEach((k) -> hostKeys.add(k));
-		} catch (IOException | GeneralSecurityException e) {
-			// Ignore.
-		}
+		ServerBuilder builder = ServerBuilder.builder()
+				.signatureFactories(getSignatureFactories());
+		server = builder.build();
+		hostKeys.add(hostKey);
 		server.setKeyPairProvider((session) -> hostKeys);
 
 		configureAuthentication();
 
-		List<NamedFactory<Command>> subsystems = configureSubsystems();
+		List<SubsystemFactory> subsystems = configureSubsystems();
 		if (!subsystems.isEmpty()) {
 			server.setSubsystemFactories(subsystems);
 		}
 
 		configureShell();
 
-		server.setCommandFactory(command -> {
+		server.setCommandFactory((channel, command) -> {
 			if (command.startsWith(RemoteConfig.DEFAULT_UPLOAD_PACK)) {
 				return new GitUploadPackCommand(command, executorService);
 			} else if (command.startsWith(RemoteConfig.DEFAULT_RECEIVE_PACK)) {
 				return new GitReceivePackCommand(command, executorService);
+			} else if (command.startsWith(ECHO_COMMAND)) {
+				return new EchoCommand(command, executorService);
 			}
 			return new UnknownCommand(command);
 		});
 	}
 
+	/**
+	 * Apache MINA sshd 2.6.0 has removed DSA, DSA_CERT and RSA_CERT. We have to
+	 * set it up explicitly to still allow users to connect with DSA keys.
+	 *
+	 * @return a list of supported signature factories
+	 */
+	@SuppressWarnings("deprecation")
+	private static List<NamedFactory<Signature>> getSignatureFactories() {
+		// @formatter:off
+		return Arrays.asList(
+                BuiltinSignatures.nistp256_cert,
+                BuiltinSignatures.nistp384_cert,
+                BuiltinSignatures.nistp521_cert,
+                BuiltinSignatures.ed25519_cert,
+                BuiltinSignatures.rsaSHA512_cert,
+                BuiltinSignatures.rsaSHA256_cert,
+                BuiltinSignatures.rsa_cert,
+                BuiltinSignatures.nistp256,
+                BuiltinSignatures.nistp384,
+                BuiltinSignatures.nistp521,
+                BuiltinSignatures.ed25519,
+                BuiltinSignatures.sk_ecdsa_sha2_nistp256,
+                BuiltinSignatures.sk_ssh_ed25519,
+                BuiltinSignatures.rsaSHA512,
+                BuiltinSignatures.rsaSHA256,
+                BuiltinSignatures.rsa,
+                BuiltinSignatures.dsa_cert,
+                BuiltinSignatures.dsa);
+		// @formatter:on
+	}
+
+	private static PublicKey readPublicKey(Path key)
+			throws IOException, GeneralSecurityException {
+		return AuthorizedKeyEntry.readAuthorizedKeys(key).get(0)
+				.resolvePublicKey(null, PublicKeyEntryResolver.IGNORING);
+	}
+
+	private static KeyPair readKeyPair(byte[] keyMaterial)
+			throws IOException, GeneralSecurityException {
+		try (ByteArrayInputStream in = new ByteArrayInputStream(keyMaterial)) {
+			return SecurityUtils.loadKeyPairIdentities(null, null, in, null)
+					.iterator().next();
+		}
+	}
+
 	private static class FakeUserAuthGSS extends UserAuthGSS {
 		@Override
-		protected Boolean doAuth(Buffer buffer, boolean initial)
+		protected @Nullable Boolean doAuth(Buffer buffer, boolean initial)
 				throws Exception {
 			// We always reply that we did do this, but then we fail at the
 			// first token message. That way we can test that the client-side
@@ -188,11 +260,12 @@ public class SshTestGitServer {
 		}
 	}
 
-	private List<NamedFactory<UserAuth>> getAuthFactories() {
-		List<NamedFactory<UserAuth>> authentications = new ArrayList<>();
+	private List<UserAuthFactory> getAuthFactories() {
+		List<UserAuthFactory> authentications = new ArrayList<>();
 		authentications.add(new UserAuthGSSFactory() {
 			@Override
-			public UserAuth create() {
+			public UserAuth createUserAuth(ServerSession session)
+					throws IOException {
 				return new FakeUserAuthGSS();
 			}
 		});
@@ -241,16 +314,10 @@ public class SshTestGitServer {
 	 * @return A possibly empty collection of subsystems.
 	 */
 	@NonNull
-	protected List<NamedFactory<Command>> configureSubsystems() {
+	protected List<SubsystemFactory> configureSubsystems() {
 		// SFTP.
-		server.setFileSystemFactory(new VirtualFileSystemFactory() {
-
-			@Override
-			protected Path computeRootDir(Session session) throws IOException {
-				return SshTestGitServer.this.repository.getDirectory()
-						.getParentFile().getAbsoluteFile().toPath();
-			}
-		});
+		server.setFileSystemFactory(new VirtualFileSystemFactory(repository
+				.getDirectory().getParentFile().getAbsoluteFile().toPath()));
 		return Collections
 				.singletonList((new SftpSubsystemFactory.Builder()).build());
 	}
@@ -284,11 +351,24 @@ public class SshTestGitServer {
 					.loadKeyPairIdentities(null,
 							NamedResource.ofName(key.toString()), in, null)
 					.iterator().next();
-			if (inFront) {
-				hostKeys.add(0, pair);
-			} else {
-				hostKeys.add(pair);
-			}
+			addHostKey(pair, inFront);
+		}
+	}
+
+	/**
+	 * Adds an additional host key to the server.
+	 *
+	 * @param key
+	 *            {@link KeyPair} to add
+	 * @param inFront
+	 *            whether to add the new key before other existing keys
+	 * @since 5.8
+	 */
+	public void addHostKey(@NonNull KeyPair key, boolean inFront) {
+		if (inFront) {
+			hostKeys.add(0, key);
+		} else {
+			hostKeys.add(key);
 		}
 	}
 
@@ -314,6 +394,17 @@ public class SshTestGitServer {
 		});
 		server.setKeyboardInteractiveAuthenticator(
 				DefaultKeyboardInteractiveAuthenticator.INSTANCE);
+	}
+
+	/**
+	 * Retrieves the server's {@link PropertyResolver}, giving access to server
+	 * properties.
+	 *
+	 * @return the {@link PropertyResolver}
+	 * @since 5.9
+	 */
+	public PropertyResolver getPropertyResolver() {
+		return server;
 	}
 
 	/**
@@ -350,8 +441,19 @@ public class SshTestGitServer {
 	 */
 	public void setTestUserPublicKey(Path key)
 			throws IOException, GeneralSecurityException {
-		this.testKey = AuthorizedKeyEntry.readAuthorizedKeys(key).get(0)
-				.resolvePublicKey(null, PublicKeyEntryResolver.IGNORING);
+		this.testKey = readPublicKey(key);
+	}
+
+	/**
+	 * Sets the test user's public key on the server.
+	 *
+	 * @param key
+	 *            to set
+	 *
+	 * @since 5.8
+	 */
+	public void setTestUserPublicKey(@NonNull PublicKey key) {
+		this.testKey = key;
 	}
 
 	/**
@@ -364,9 +466,8 @@ public class SshTestGitServer {
 	 */
 	public void setPreamble(String... lines) {
 		if (lines != null && lines.length > 0) {
-			PropertyResolverUtils.updateProperty(this.server,
-					ServerFactoryManager.SERVER_EXTRA_IDENTIFICATION_LINES,
-					String.join("|", lines));
+			SERVER_EXTRA_IDENTIFICATION_LINES.set(server, String.join(
+					String.valueOf(SERVER_EXTRA_IDENT_LINES_SEPARATOR), lines));
 		}
 	}
 
@@ -420,5 +521,53 @@ public class SshTestGitServer {
 			}
 		}
 
+	}
+
+	/**
+	 * Simple echo command that echoes back the command string. If the first
+	 * argument is a positive integer, it's taken as a delay (in seconds) before
+	 * replying. Assumes UTF-8 character encoding.
+	 */
+	private static class EchoCommand extends AbstractCommandSupport {
+
+		protected EchoCommand(String command,
+				CloseableExecutorService executorService) {
+			super(command, ThreadUtils.noClose(executorService));
+		}
+
+		@Override
+		public void run() {
+			String[] parts = getCommand().split(" ");
+			int timeout = 0;
+			if (parts.length >= 2) {
+				try {
+					timeout = Integer.parseInt(parts[1]);
+				} catch (NumberFormatException e) {
+					// No timeout.
+				}
+				if (timeout > 0) {
+					try {
+						Thread.sleep(TimeUnit.SECONDS.toMillis(timeout));
+					} catch (InterruptedException e) {
+						// Ignore.
+					}
+				}
+			}
+			try {
+				doEcho(getCommand(), getOutputStream());
+				onExit(0);
+			} catch (IOException e) {
+				log.warn(
+						MessageFormat.format("Could not run {0}", getCommand()),
+						e);
+				onExit(-1, e.toString());
+			}
+		}
+
+		private void doEcho(String text, OutputStream stream)
+				throws IOException {
+			stream.write(text.getBytes(StandardCharsets.UTF_8));
+			stream.flush();
+		}
 	}
 }
