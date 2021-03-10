@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
+import com.sun.istack.internal.NotNull;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.api.errors.PatchApplyException;
 import org.eclipse.jgit.api.errors.PatchFormatException;
@@ -252,6 +253,7 @@ public class ApplyCommand extends GitCommand<ApplyResult> {
 			// lineNumberShift
 			lineNumberShift = applyAt - hh.getNewStartLine() + 1;
 			int sz = hunkLines.size();
+			boolean isCompositeNewline = System.lineSeparator().equals("\r\n");
 			for (int j = 1; j < sz; j++) {
 				String hunkLine = hunkLines.get(j);
 				switch (hunkLine.charAt(0)) {
@@ -262,7 +264,7 @@ public class ApplyCommand extends GitCommand<ApplyResult> {
 					newLines.remove(applyAt);
 					break;
 				case '+':
-					newLines.add(applyAt++, hunkLine.substring(1));
+					newLines.add(applyAt++, _handleEOL(isCompositeNewline, hunkLine.substring(1)));
 					break;
 				default:
 					break;
@@ -292,6 +294,12 @@ public class ApplyCommand extends GitCommand<ApplyResult> {
 		getRepository().getFS().setExecute(f, fh.getNewMode() == FileMode.EXECUTABLE_FILE);
 	}
 
+	private String _handleEOL(boolean pIsCompositeNewline, @NotNull String pLine) {
+		if(!pIsCompositeNewline || pLine.endsWith("\r"))
+			return pLine;
+		else return pLine + "\r";
+	}
+
 	private boolean canApplyAt(List<String> hunkLines, List<String> newLines,
 			int line) {
 		int sz = hunkLines.size();
@@ -303,7 +311,7 @@ public class ApplyCommand extends GitCommand<ApplyResult> {
 			case ' ':
 			case '-':
 				if (pos >= limit
-						|| !newLines.get(pos).equals(hunkLine.substring(1))) {
+						|| !newLines.get(pos).trim().equals(hunkLine.substring(1).trim())) {
 					return false;
 				}
 				pos++;
