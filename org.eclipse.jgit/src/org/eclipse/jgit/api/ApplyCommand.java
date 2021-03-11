@@ -294,7 +294,7 @@ public class ApplyCommand extends GitCommand<ApplyResult> {
 		getRepository().getFS().setExecute(f, fh.getNewMode() == FileMode.EXECUTABLE_FILE);
 	}
 
-	private String _handleEOL(boolean pIsCompositeNewline, @NotNull String pLine) {
+	private String _handleEOL(boolean pIsCompositeNewline, String pLine) {
 		if(!pIsCompositeNewline || pLine.endsWith("\r"))
 			return pLine;
 		else return pLine + "\r";
