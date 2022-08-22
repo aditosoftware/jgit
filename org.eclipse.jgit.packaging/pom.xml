@@ -16,7 +16,7 @@
 
   <groupId>org.eclipse.jgit</groupId>
   <artifactId>jgit.tycho.parent</artifactId>
-  <version>5.11.0.ADITO-SNAPSHOT</version>
+  <version>5.11.1.ADITO-SNAPSHOT</version>
   <packaging>pom</packaging>
 
   <name>JGit Tycho Parent</name>
@@ -54,15 +54,15 @@
 
   <distributionManagement>
     <repository>
-      <id>repo.eclipse.org</id>
-      <name>JGit Maven Repository - Releases</name>
-      <url>https://repo.eclipse.org/content/repositories/jgit-releases/</url>
+      <id>adito.m2</id>
+      <name>releases</name>
+      <url>${repository.releases}</url>
     </repository>
     <snapshotRepository>
-      <id>repo.eclipse.org</id>
-      <name>JGit Maven Repository - Snapshots</name>
-      <url>https://repo.eclipse.org/content/repositories/jgit-snapshots/</url>
-      <uniqueVersion>true</uniqueVersion>
+      <id>adito.m2</id>
+      <name>snapshots</name>
+      <url>${repository.snapshots}</url>
+      <uniqueVersion>false</uniqueVersion>
     </snapshotRepository>
   </distributionManagement>
 

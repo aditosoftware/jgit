@@ -18,7 +18,7 @@
   <groupId>org.eclipse.jgit</groupId>
   <artifactId>org.eclipse.jgit-parent</artifactId>
   <packaging>pom</packaging>
-  <version>5.11.0.ADITO-SNAPSHOT</version>
+  <version>5.11.1.ADITO-SNAPSHOT</version>
 
   <name>JGit - Parent</name>
   <url>${jgit-url}</url>
@@ -786,21 +786,16 @@
 
   <distributionManagement>
     <repository>
-      <id>repo.eclipse.org</id>
-      <name>JGit Maven Repository - Releases</name>
-      <url>https://repo.eclipse.org/content/repositories/jgit-releases/</url>
+      <id>adito.m2</id>
+      <name>releases</name>
+      <url>${repository.releases}</url>
     </repository>
     <snapshotRepository>
-      <id>repo.eclipse.org</id>
-      <name>JGit Maven Repository - Snapshots</name>
-      <url>https://repo.eclipse.org/content/repositories/jgit-snapshots/</url>
-      <uniqueVersion>true</uniqueVersion>
+      <id>adito.m2</id>
+      <name>snapshots</name>
+      <url>${repository.snapshots}</url>
+      <uniqueVersion>false</uniqueVersion>
     </snapshotRepository>
-    <site>
-      <id>jgit.website</id>
-      <name>JGit Website</name>
-      <url>${jgit.website.url}</url>
-    </site>
   </distributionManagement>
 
   <profiles>
@@ -812,8 +807,8 @@
             <artifactId>maven-compiler-plugin</artifactId>
             <configuration>
               <encoding>UTF-8</encoding>
-              <source>1.8</source>
-              <target>1.8</target>
+              <source>9</source>
+              <target>9</target>
               <compilerArgs>
                 <arg>-XDcompilePolicy=simple</arg>
                 <arg>-Xplugin:ErrorProne</arg>

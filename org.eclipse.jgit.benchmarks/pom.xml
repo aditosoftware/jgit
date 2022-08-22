@@ -14,7 +14,7 @@
   <modelVersion>4.0.0</modelVersion>
 
   <groupId>org.eclipse.jgit</groupId>
-  <version>5.11.0.ADITO-SNAPSHOT</version>
+  <version>5.11.1.ADITO-SNAPSHOT</version>
   <artifactId>org.eclipse.jgit.benchmarks</artifactId>
   <packaging>jar</packaging>
 
@@ -172,20 +172,15 @@
   </build>
   <distributionManagement>
     <repository>
-      <id>repo.eclipse.org</id>
-      <name>JGit Maven Repository - Releases</name>
-      <url>https://repo.eclipse.org/content/repositories/jgit-releases/</url>
+      <id>adito.m2</id>
+      <name>releases</name>
+      <url>${repository.releases}</url>
     </repository>
     <snapshotRepository>
-      <id>repo.eclipse.org</id>
-      <name>JGit Maven Repository - Snapshots</name>
-      <url>https://repo.eclipse.org/content/repositories/jgit-snapshots/</url>
-      <uniqueVersion>true</uniqueVersion>
+      <id>adito.m2</id>
+      <name>snapshots</name>
+      <url>${repository.snapshots}</url>
+      <uniqueVersion>false</uniqueVersion>
     </snapshotRepository>
-    <site>
-      <id>jgit.website</id>
-      <name>JGit Website</name>
-      <url>${jgit.website.url}</url>
-    </site>
   </distributionManagement>
 </project>
