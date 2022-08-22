@@ -42,15 +42,7 @@ import java.io.InputStreamReader;
 import java.io.InterruptedIOException;
 import java.io.OutputStream;
 import java.io.UnsupportedEncodingException;
-import java.net.HttpCookie;
-import java.net.MalformedURLException;
-import java.net.Proxy;
-import java.net.ProxySelector;
-import java.net.SocketException;
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.net.URL;
-import java.net.URLDecoder;
+import java.net.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
@@ -651,7 +643,18 @@ public class TransportHttp extends HttpTransport implements WalkTransport,
 							GitProtocolConstants.PROTOCOL_HEADER,
 							GitProtocolConstants.VERSION_2_REQUEST);
 				}
-				final int status = HttpSupport.response(conn);
+
+				// disable authentication dialog, if http response is unauthorized
+				Authenticator authenticator = Authenticator.getDefault();
+				Authenticator.setDefault(null);
+				int status;
+				try {
+					status = HttpSupport.response(conn);
+				} finally {
+					if(authenticator != null)
+						Authenticator.setDefault(authenticator);
+				}
+
 				processResponseCookies(conn);
 				switch (status) {
 				case HttpConnection.HTTP_OK:
